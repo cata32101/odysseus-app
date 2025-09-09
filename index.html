@@ -693,52 +693,54 @@
 
         // --- MODIFICATION 2: Optimistic UI updates for instant feedback ---
         const vetCompanies = async () => {
-            let idsToVet = Array.from(selectedCompanyIds).filter(id => allCompanies.find(c => c.id === id)?.status === 'New');
-            if (idsToVet.length === 0) {
-                idsToVet = allCompanies.filter(c => c.status === 'New').map(c => c.id);
-            }
-            if (idsToVet.length === 0) return;
+        let idsToVet = Array.from(selectedCompanyIds).filter(id => allCompanies.find(c => c.id === id)?.status === 'New');
+        if (idsToVet.length === 0) {
+            idsToVet = allCompanies.filter(c => c.status === 'New').map(c => c.id);
+        }
+        if (idsToVet.length === 0) return;
 
-            // --- START: Optimistic UI Update ---
-            // This code runs instantly when you click the button.
-            // It updates the local data and redraws the list on the screen.
-            allCompanies = allCompanies.map(c => {
-                if (idsToVet.includes(c.id)) {
-                    return { ...c, status: 'Vetting' };
-                }
-                return c;
-            });
-            filterAndSortCompanies(); // This redraws the company list with the "Vetting" status
-            if (idsToVet.includes(activeCompanyId)) {
-                selectCompany(activeCompanyId); // This redraws the detail view if it's being vetted
+        // --- 1. Optimistic UI Update for instant feedback ---
+        allCompanies = allCompanies.map(c => {
+            if (idsToVet.includes(c.id)) {
+                return { ...c, status: 'Vetting' };
             }
-            // --- END: Optimistic UI Update ---
+            return c;
+        });
+        filterAndSortCompanies();
+        if (idsToVet.includes(activeCompanyId)) {
+            selectCompany(activeCompanyId);
+        }
 
-            const btn = document.getElementById('vet-companies-btn');
-            btn.disabled = true;
-            document.getElementById('vet-btn-text').textContent = `Vetting (${idsToVet.length})...`;
-            document.getElementById('vet-btn-loader').classList.remove('hidden');
+        const btn = document.getElementById('vet-companies-btn');
+        btn.disabled = true;
+        document.getElementById('vet-btn-text').textContent = `Vetting (${idsToVet.length})...`;
+        document.getElementById('vet-btn-loader').classList.remove('hidden');
+        
+        try {
+            // --- 2. Send the request and DO NOT wait for it to finish ---
+            const res = await authenticatedFetch(`${API_BASE_URL}/companies/vet`, { method: 'POST', body: JSON.stringify({ company_ids: idsToVet }) });
             
-            try {
-                // The backend process now runs in the background.
-                // When it finishes, the realtime listener will pick up the "Vetted" status change.
-                const res = await authenticatedFetch(`${API_BASE_URL}/companies/vet`, { method: 'POST', body: JSON.stringify({ company_ids: idsToVet }) });
-                const results = await res.json(); 
-                if (!res.ok) throw new Error(results.detail);
-                
-                showStatusMessage(`Successfully vetted ${results.length} companies.`);
-            } catch (error) {
-                showStatusMessage(error.message, 'error');
-                await fetchAndRenderCompanies(); // On error, refresh data to revert failed changes
-            } finally {
-                btn.disabled = false;
-                document.getElementById('vet-btn-loader').classList.add('hidden');
-                selectedCompanyIds.clear();
-                // The realtime listener will have updated the final "Vetted" status,
-                // but we call this again to reset the button text.
-                filterAndSortCompanies();
+            // The server will respond with 202 Accepted almost instantly.
+            if (res.status !== 202) {
+                const errorData = await res.json();
+                throw new Error(errorData.detail || 'Failed to start vetting process');
             }
-        };
+            
+            showStatusMessage(`Vetting for ${idsToVet.length} companies started...`);
+            
+        } catch (error) {
+            showStatusMessage(error.message, 'error');
+            // If starting the task fails, refresh the data to revert optimistic updates
+            await fetchAndRenderCompanies(); 
+        } finally {
+             // --- 3. Reset the button state immediately ---
+             // The real-time listener will handle all UI updates from now on.
+            btn.disabled = false;
+            document.getElementById('vet-btn-loader').classList.add('hidden');
+            selectedCompanyIds.clear();
+            updateVetButtonState(); // This will correctly reset the button text
+        }
+    };
 
         const clearCompanies = async (status) => {
             const modal = document.getElementById(`clear-${status}-confirmation-modal`);
