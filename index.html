@@ -144,42 +144,43 @@
             populateViewHTML();
             setupEventListeners();
             fetchAndRenderCompanies();
-            listenForCompanyChanges(); // <-- ADD THIS LINE
+            listenForCompanyChanges();
             loadedViews.add('companies-view');
         };
     
-        // --- NEW FUNCTION TO HANDLE REAL-TIME UPDATES ---
+        // --- MODIFICATION 1: Robust real-time listener ---
         const listenForCompanyChanges = () => {
-        // FIX: Use a simpler channel name and specify the schema and table in the 'on' method
-        supabaseClient
-            .channel('any_channel_name') // This can be anything
-            .on('postgres_changes', { 
-                event: '*', 
-                schema: 'public', 
-                table: 'companies' 
-            }, payload => {
-                console.log('Change received!', payload);
-                const { eventType, new: newRecord, old: oldRecord } = payload;
-
-                if (eventType === 'INSERT') {
-                    allCompanies.unshift(newRecord);
-                } else if (eventType === 'UPDATE') {
-                    const index = allCompanies.findIndex(c => c.id === newRecord.id);
-                    if (index !== -1) {
-                        allCompanies[index] = newRecord;
+            // This is the most reliable way to subscribe to table changes.
+            // The channel name ('companies-channel') can be any unique string.
+            const companyChannel = supabaseClient
+                .channel('companies-channel')
+                .on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'companies' },
+                    (payload) => {
+                        console.log('Realtime change received!', payload);
+                        const { eventType, new: newRecord, old: oldRecord } = payload;
+        
+                        if (eventType === 'INSERT') {
+                            allCompanies.unshift(newRecord);
+                        } else if (eventType === 'UPDATE') {
+                            const index = allCompanies.findIndex(c => c.id === newRecord.id);
+                            if (index !== -1) {
+                                allCompanies[index] = newRecord;
+                            }
+                        } else if (eventType === 'DELETE') {
+                            allCompanies = allCompanies.filter(c => c.id !== oldRecord.id);
+                        }
+        
+                        filterAndSortCompanies();
+        
+                        if (newRecord && newRecord.id === activeCompanyId) {
+                            selectCompany(activeCompanyId);
+                        }
                     }
-                } else if (eventType === 'DELETE') {
-                    allCompanies = allCompanies.filter(c => c.id !== oldRecord.id);
-                }
-
-                filterAndSortCompanies();
-
-                if (newRecord && newRecord.id === activeCompanyId) {
-                    selectCompany(activeCompanyId);
-                }
-            })
-            .subscribe();
-    };
+                )
+                .subscribe();
+        };
         
         // --- Core Data Fetching ---
         const fetchAndRenderCompanies = async () => {
@@ -266,7 +267,7 @@
             if (['New', 'Vetting', 'Failed'].includes(company.status)) {
                 const messages = {'New': 'This company has not been vetted yet.', 'Vetting': 'Vetting in progress...', 'Failed': 'Vetting process failed for this company.'};
                 const colors = {'New': 'text-gray-500', 'Vetting': 'text-blue-500', 'Failed': 'text-red-700 bg-red-50'};
-                detailContent = `<div class="text-center p-8 rounded-lg ${colors[company.status]}"><h2 class="text-2xl font-bold">${company.domain}</h2><p class="mt-2">${messages[company.status]}</p></div>`;
+                detailContent = `<div class="text-center p-8 rounded-lg ${colors[company.status] || ''}"><h2 class="text-2xl font-bold">${company.name || company.domain}</h2><p class="mt-2">${messages[company.status]}</p></div>`;
             } else {
                  detailContent = `
                     <div class="flex justify-between items-start mb-4">
@@ -690,24 +691,52 @@
             } catch (error) { showStatusMessage(error.message, 'error'); } finally { button.disabled = false; }
         };
 
+        // --- MODIFICATION 2: Optimistic UI updates for instant feedback ---
         const vetCompanies = async () => {
             let idsToVet = Array.from(selectedCompanyIds).filter(id => allCompanies.find(c => c.id === id)?.status === 'New');
-            if (idsToVet.length === 0) idsToVet = allCompanies.filter(c => c.status === 'New').map(c => c.id);
+            if (idsToVet.length === 0) {
+                idsToVet = allCompanies.filter(c => c.status === 'New').map(c => c.id);
+            }
             if (idsToVet.length === 0) return;
 
-            const btn = document.getElementById('vet-companies-btn'); btn.disabled = true;
+            // --- START: Optimistic UI Update ---
+            // This code runs instantly when you click the button.
+            // It updates the local data and redraws the list on the screen.
+            allCompanies = allCompanies.map(c => {
+                if (idsToVet.includes(c.id)) {
+                    return { ...c, status: 'Vetting' };
+                }
+                return c;
+            });
+            filterAndSortCompanies(); // This redraws the company list with the "Vetting" status
+            if (idsToVet.includes(activeCompanyId)) {
+                selectCompany(activeCompanyId); // This redraws the detail view if it's being vetted
+            }
+            // --- END: Optimistic UI Update ---
+
+            const btn = document.getElementById('vet-companies-btn');
+            btn.disabled = true;
             document.getElementById('vet-btn-text').textContent = `Vetting (${idsToVet.length})...`;
             document.getElementById('vet-btn-loader').classList.remove('hidden');
+            
             try {
+                // The backend process now runs in the background.
+                // When it finishes, the realtime listener will pick up the "Vetted" status change.
                 const res = await authenticatedFetch(`${API_BASE_URL}/companies/vet`, { method: 'POST', body: JSON.stringify({ company_ids: idsToVet }) });
-                const results = await res.json(); if (!res.ok) throw new Error(results.detail);
-                await fetchAndRenderCompanies();
+                const results = await res.json(); 
+                if (!res.ok) throw new Error(results.detail);
+                
                 showStatusMessage(`Successfully vetted ${results.length} companies.`);
-                if (activeCompanyId && allCompanies.some(c => c.id === activeCompanyId)) await selectCompany(activeCompanyId);
-            } catch (error) { showStatusMessage(error.message, 'error'); } 
-            finally {
-                btn.disabled = false; document.getElementById('vet-btn-loader').classList.add('hidden');
-                selectedCompanyIds.clear(); filterAndSortCompanies();
+            } catch (error) {
+                showStatusMessage(error.message, 'error');
+                await fetchAndRenderCompanies(); // On error, refresh data to revert failed changes
+            } finally {
+                btn.disabled = false;
+                document.getElementById('vet-btn-loader').classList.add('hidden');
+                selectedCompanyIds.clear();
+                // The realtime listener will have updated the final "Vetted" status,
+                // but we call this again to reset the button text.
+                filterAndSortCompanies();
             }
         };
 
