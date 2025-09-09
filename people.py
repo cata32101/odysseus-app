@@ -103,7 +103,7 @@ def enrich_apollo_person(apollo_person_id: str) -> Optional[dict]:
 def analyze_russia_ties(person_data: dict, company_data: dict) -> Dict:
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key: raise HTTPException(500, "GEMINI_API_KEY not configured")
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", google_api_key=gemini_api_key, temperature=0.1).with_structured_output(RussiaTiesAnalysis)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key, temperature=0.1).with_structured_output(RussiaTiesAnalysis)
     research_text = ""
     if person_data.get('linkedin_url'):
         linkedin_text = fetch_and_parse_url(person_data['linkedin_url'])
@@ -128,7 +128,7 @@ Provide a concise summary and risk assessment (Low, Moderate, High). State 'No t
 def generate_outreach_message(person_data: dict, company_data: dict) -> Dict:
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key: raise HTTPException(500, "GEMINI_API_KEY not configured")
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", google_api_key=gemini_api_key, temperature=0.5).with_structured_output(OutreachMessage)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key, temperature=0.5).with_structured_output(OutreachMessage)
     company_industry = company_data.get('apollo_data', {}).get('organization', {}).get('industry', 'their industry')
     prompt = f"""You are a business development manager for a Ukrainian firm managing upstream oil and gas assets. Craft a personalized outreach email to the following individual to initiate a conversation about potential PARTNERSHIPS in Ukraine's oil and gas sector recovery. Be professional and peer-to-peer. Use their profile and company profile to craft a short and targeted personalized outreach message.\nRecipient: {person_data.get('name')}, Title: {person_data.get('title')}, Company: {company_data.get('name')}, Industry: {company_industry}"""
     message = llm.invoke(prompt)
