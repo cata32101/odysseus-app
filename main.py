@@ -191,7 +191,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
         "geography": (GeographyAnalysis, f"""
     You are a geopolitical risk analyst. Your task is to analyze the company's geographical footprint based on the provided research. **You must completely disregard any information related to Russia for this analysis.** . If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring Rubric (0-10):**
-      - **10:** Active, direct investments or assets in Ukraine.
+      - **10:** Active, direct investments or assets in Ukraine. 
       - **9:** Past or minority investments in Ukraine, or indirect supply-chain reliance.
       - **8:** Investments specifically in countries bordering Ukraine (Poland, Slovakia, Hungary, Moldova).
       - **7:** Exposure in Central/Eastern Europe closer to Ukraine (e.g., Romania, Baltics, Balkans).
