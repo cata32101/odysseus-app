@@ -27,8 +27,15 @@ class Source(BaseModel):
     name: Optional[str] = None; url: Optional[str] = None; snippet: Optional[str] = None
 
 class BaseCompany(BaseModel):
-    id: int; name: Optional[str] = None; domain: str; status: Status; apollo_data: Optional[Dict] = None; website_url: Optional[str] = None; company_linkedin_url: Optional[str] = None
-
+    id: int
+    name: Optional[str] = None
+    domain: str
+    status: Status
+    apollo_data: Optional[Dict] = None
+    website_url: Optional[str] = None
+    company_linkedin_url: Optional[str] = None
+    group_name: Optional[str] = None # Add this line
+    
 class VettedCompany(BaseCompany):
     unified_score: Optional[float] = None
     geography_score: Optional[int] = None

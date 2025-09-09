@@ -520,40 +520,40 @@
             let filtered = allCompanies.filter(c => ((c.name || '').toLowerCase().includes(searchTerm) || c.domain.toLowerCase().includes(searchTerm)) && (statusFilter === 'all' || c.status === statusFilter));
             filtered.sort((a, b) => (currentSort === 'id') ? b.id - a.id : (b[currentSort] ?? -Infinity) - (a[currentSort] ?? -Infinity));
 
-            // Grouping logic
-            const groupedCompanies = filtered.reduce((acc, company) => {
-                const group = company.group_name || 'Ungrouped';
-                if (!acc[group]) {
-                    acc[group] = [];
-                }
-                acc[group].push(company);
-                return acc;
-            }, {});
-
             const companiesList = document.getElementById('companies-list');
             companiesList.innerHTML = '';
 
-            for (const groupName in groupedCompanies) {
-                const groupHeader = document.createElement('div');
-                groupHeader.className = 'p-2 bg-slate-100 font-bold text-slate-600 text-sm sticky top-0';
-                groupHeader.innerHTML = `
-                    <span>${groupName}</span>
-                `;
-                companiesList.appendChild(groupHeader);
-
-                const groupCompanies = groupedCompanies[groupName];
-                groupCompanies.forEach(company => {
-                    const companyElement = document.createElement('div');
-                    companyElement.innerHTML = renderCompanyListItem(company);
-                    companiesList.appendChild(companyElement);
-                });
-            }
-
             if (filtered.length === 0) {
                 companiesList.innerHTML = '<p class="p-4 text-gray-500">No companies found.</p>';
+            } else {
+                const grouped = filtered.reduce((acc, company) => {
+                    const groupKey = company.group_name || 'Ungrouped';
+                    if (!acc[groupKey]) acc[groupKey] = [];
+                    acc[groupKey].push(company);
+                    return acc;
+                }, {});
+
+                for (const groupName in grouped) {
+                    const groupCompanies = grouped[groupName];
+                    const companyIdsInGroup = groupCompanies.map(c => c.id);
+                    const allInGroupSelected = companyIdsInGroup.every(id => selectedCompanyIds.has(id));
+
+                    const groupContainer = document.createElement('div');
+                    groupContainer.innerHTML = `
+                        <div class="group-header flex items-center p-2 bg-slate-100 border-b border-slate-200 cursor-pointer sticky top-0">
+                            <input type="checkbox" class="group-select-all mr-3 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" data-group-name="${groupName}" ${allInGroupSelected ? 'checked' : ''}>
+                            <span class="font-bold text-slate-700 flex-grow">${groupName} (${groupCompanies.length})</span>
+                            <svg class="group-toggle-arrow w-5 h-5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </div>
+                        <div class="company-list-group pl-4">
+                            ${groupCompanies.map(renderCompanyListItem).join('')}
+                        </div>
+                    `;
+                    companiesList.appendChild(groupContainer);
+                }
             }
 
-            updateVetButtonState(); 
+            updateVetButtonState();
             updateClearButtonsState();
             updateSelectionActionButtonsState();
         };
@@ -688,6 +688,34 @@
                 if (filterMap[e.target.id]) {
                     clearTimeout(searchDebounceTimeout);
                     searchDebounceTimeout = setTimeout(filterMap[e.target.id], 300);
+                }
+            });
+            document.body.addEventListener('click', (e) => {
+                // For toggling group visibility
+                const groupHeader = e.target.closest('.group-header');
+                if (groupHeader && !e.target.matches('input[type="checkbox"]')) {
+                    const companyList = groupHeader.nextElementSibling;
+                    const arrow = groupHeader.querySelector('.group-toggle-arrow');
+                    companyList.classList.toggle('hidden');
+                    arrow.classList.toggle('rotate-180');
+                }
+            });
+
+            document.body.addEventListener('change', (e) => {
+                // For group "select all" checkbox
+                if (e.target.matches('.group-select-all')) {
+                    const groupName = e.target.dataset.groupName;
+                    const companyIdsInGroup = allCompanies
+                        .filter(c => (c.group_name || 'Ungrouped') === groupName)
+                        .map(c => c.id);
+
+                    if (e.target.checked) {
+                        companyIdsInGroup.forEach(id => selectedCompanyIds.add(id));
+                    } else {
+                        companyIdsInGroup.forEach(id => selectedCompanyIds.delete(id));
+                    }
+                    filterAndSortCompanies(); // Re-render to update all checkboxes
+                    updateSelectionActionButtonsState();
                 }
             });
         };
