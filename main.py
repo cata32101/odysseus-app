@@ -241,7 +241,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
         "size": (SizeAnalysis, f"""
     You are an analyst sourcing mid-sized companies for potential partnerships.
     Evaluate the company's size based on employee count and revenue from the dossier and research. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
-    - **Scoring (0-10):** 10 for an ideal mid-market size (50-5000 employees). Score lower for companies that are too small (<10) or too large (>10,000).
+    - **Scoring (0-10):** 10 for an ideal mid-market size (50-5000 employees). Score lower for companies that are too small (<10) or too large (>10,000), however a large company is still better than a very small one. a large corporation with 25 thousand should get a 1-2. Also take revenue into account, for example 50 employees but large revenue for their size is a score improvement.
     - **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`. Cite URLs from the transcript in your reasoning.
     """)
     }
@@ -270,7 +270,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     You are a senior analyst synthesizing research for a Ukrainian upstream oil and gas asset management firm. Your sole focus is to find potential PARTNERS, not investments.
     Based ONLY on the provided research transcript and dossier for **{company_name}**, generate a final, holistic profile.
 
-    **Primary Investment Thesis:** We are looking for partners who are **operators of upstream oil and gas assets**. Our ideal partner is a **mid-sized company (50-5,000 employees)** with a focus on **geopolitically high-risk regions (e.g., Africa, South America, Eastern Europe)**, and has **no ties to Russia**.
+    **Primary Investment Thesis:** We are looking for partners who are EITHER **investment firms, funds or offices with primary portfolio of upstream oil and gas sector** OR **operators of upstream oil and gas assets**. Our ideal partner is a **mid-sized company (50-5,000 employees)** with a focus on **geopolitically high-risk regions (e.g., Africa, South America, Eastern Europe)**, and has **no ties to Russia**.
 
     **Instructions for 'investment_reasoning':**
     1.  **Strictly adhere to the provided text.** Do not use outside knowledge. If the text doesn't support a conclusion, state that the information is not available.
