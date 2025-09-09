@@ -33,11 +33,10 @@
     </div>
 
     <script type="module">
-        const IS_DEVELOPMENT = true;
+        const IS_DEVELOPMENT = false; // Set to false before deploying
         const API_BASE_URL = IS_DEVELOPMENT ? "http://127.0.0.1:8000" : "";
 
         const loginForm = document.getElementById('login-form');
-        const signupBtn = document.getElementById('signup-btn');
         const loginBtn = document.getElementById('login-btn');
         const messageDiv = document.getElementById('auth-message');
         
@@ -61,33 +60,22 @@
             }
         }
 
-        const handleAuth = async (action, email, password) => {
+        const handleLogin = async (email, password) => {
             messageDiv.textContent = '';
             loginBtn.disabled = true;
-            signupBtn.disabled = true;
-            const originalBtnText = action === 'login' ? loginBtn.textContent : signupBtn.textContent;
-            const targetBtn = action === 'login' ? loginBtn : signupBtn;
-            targetBtn.textContent = 'Processing...';
+            loginBtn.textContent = 'Processing...';
 
-            const { data, error } = action === 'login'
-                ? await supabaseClient.auth.signInWithPassword({ email, password })
-                : await supabaseClient.auth.signUp({ email, password });
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
             if (error) {
                 messageDiv.textContent = error.message;
                 messageDiv.classList.add('text-red-600');
             } else if (data.session) {
-                // THIS IS THE FIX: Always redirect to the root path.
                 window.location.href = '/'; 
-            } else if (data.user && action === 'signup') {
-                messageDiv.textContent = 'Sign-up successful! Please check your email to verify.';
-                messageDiv.classList.remove('text-red-600');
-                messageDiv.classList.add('text-green-600');
             }
             
             loginBtn.disabled = false;
-            signupBtn.disabled = false;
-            targetBtn.textContent = originalBtnText;
+            loginBtn.textContent = 'Sign In';
         };
 
         function setupEventListeners() {
@@ -95,18 +83,7 @@
                 e.preventDefault();
                 const email = document.getElementById('email').value;
                 const password = document.getElementById('password').value;
-                handleAuth('login', email, password);
-            });
-        
-            signupBtn.addEventListener('click', () => {
-                 const email = document.getElementById('email').value;
-                const password = document.getElementById('password').value;
-                if(!email || !password) {
-                    messageDiv.textContent = 'Email and password are required to sign up.';
-                    messageDiv.classList.add('text-red-600');
-                    return;
-                }
-                handleAuth('signup', email, password);
+                handleLogin(email, password);
             });
         }
 
