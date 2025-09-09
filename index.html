@@ -89,18 +89,14 @@
     </div>
 
     <script type="module">
+        // --- DEVELOPMENT SWITCH ---
+        const IS_DEVELOPMENT = false;
+    
         // --- Supabase and Auth Setup ---
-        const SUPABASE_URL = "https://ryistscmowoarruukbao.supabase.co";
-        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5aXN0c2Ntb3dvYXJydXVrYmFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY5NzY5MjMsImV4cCI6MjA3MjU1MjkyM30.KhtiscNWgDr4eaa_EHsfwMXH1tzQL1_LdC4qmoFz94c";
-        const API_BASE_URL = "http://127.0.0.1:8000";
-
-        if (SUPABASE_URL.includes("YOUR_SUPABASE")) {
-            document.body.innerHTML = `<div class="w-screen h-screen flex items-center justify-center bg-red-100 text-red-800"><p class="text-2xl font-bold">CRITICAL ERROR: Replace placeholder Supabase credentials in index.html before running.</p></div>`;
-        }
-
-        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const API_BASE_URL = IS_DEVELOPMENT ? "http://127.0.0.1:8000" : "";
+        let supabaseClient = null;
         let activeSession = null;
-
+    
         // --- Global State ---
         let activeCompanyId = null;
         let allCompanies = [];
@@ -113,24 +109,33 @@
         
         // --- Auth & Initialization ---
         const checkAuthAndInit = async () => {
-            const { data, error } = await supabaseClient.auth.getSession();
-            if (error || !data.session) {
-                window.location.href = './login';
-            } else {
-                activeSession = data.session;
-                document.getElementById('app-container').classList.remove('hidden');
-                document.getElementById('user-email').textContent = activeSession.user.email;
-                document.getElementById('user-email').title = activeSession.user.email;
-                initializeApp();
+            try {
+                const configResponse = await fetch(`${API_BASE_URL}/config`);
+                if (!configResponse.ok) throw new Error("Could not fetch config.");
+                const config = await configResponse.json();
+                supabaseClient = window.supabase.createClient(config.supabase_url, config.supabase_anon_key);
+    
+                const { data, error } = await supabaseClient.auth.getSession();
+                if (error || !data.session) {
+                    window.location.href = '/login';
+                } else {
+                    activeSession = data.session;
+                    document.getElementById('app-container').classList.remove('hidden');
+                    document.getElementById('user-email').textContent = activeSession.user.email;
+                    document.getElementById('user-email').title = activeSession.user.email;
+                    initializeApp();
+                }
+            } catch (e) {
+                 document.body.innerHTML = `<div class="w-screen h-screen flex items-center justify-center bg-red-100 text-red-800"><p class="text-2xl font-bold">CRITICAL ERROR: Could not load configuration from the backend. Make sure the Python server is running.</p></div>`;
             }
         };
-
+    
         const authenticatedFetch = async (url, options = {}) => {
             const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeSession.access_token}`, ...options.headers };
             const response = await fetch(url, { ...options, headers });
             if (response.status === 401) {
                 await supabaseClient.auth.signOut();
-                window.location.href = './login';
+                window.location.href = '/login';
             }
             return response;
         };
@@ -159,7 +164,6 @@
             const container = document.getElementById('people-list-container');
             container.innerHTML = `<div class="text-center text-gray-500">Loading...</div>`;
             try {
-                // Fetch people and past campaigns in parallel
                 const [peopleRes, campaignsRes] = await Promise.all([
                     authenticatedFetch(`${API_BASE_URL}/contacts/`),
                     authenticatedFetch(`${API_BASE_URL}/contacts/campaigns/past`)
@@ -426,7 +430,6 @@
                 const response = await authenticatedFetch(`${API_BASE_URL}/contacts/campaigns/archive`, { method: 'POST', body: JSON.stringify({ campaign_type: campaignType, campaign_name: campaignName }) });
                 if (!response.ok) throw new Error((await response.json()).detail || 'Failed to archive');
                 showStatusMessage('Campaign archived successfully.', 'success');
-                // Refresh both campaigns and people views if they have been loaded
                 if(loadedViews.has('campaigns-view')) await fetchAndRenderCampaigns();
                 if(loadedViews.has('people-view')) await fetchAndRenderPeople();
             } catch(error) {

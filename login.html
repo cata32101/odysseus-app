@@ -35,19 +35,33 @@
     </div>
 
     <script type="module">
-        // IMPORTANT: Replace these with your actual Supabase credentials from your .env file
-        const SUPABASE_URL = "https://ryistscmowoarruukbao.supabase.co";
-        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5aXN0c2Ntb3dvYXJydXVrYmFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY5NzY5MjMsImV4cCI6MjA3MjU1MjkyM30.KhtiscNWgDr4eaa_EHsfwMXH1tzQL1_LdC4qmoFz94c";
+        const IS_DEVELOPMENT = true;
+        const API_BASE_URL = IS_DEVELOPMENT ? "http://127.0.0.1:8000" : "";
 
-        if (SUPABASE_URL.includes("YOUR_SUPABASE")) {
-            alert("Please replace placeholder Supabase credentials in login.html");
-        }
-
-        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         const loginForm = document.getElementById('login-form');
         const signupBtn = document.getElementById('signup-btn');
         const loginBtn = document.getElementById('login-btn');
         const messageDiv = document.getElementById('auth-message');
+        
+        let supabaseClient = null;
+
+        async function initializeSupabase() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/config`);
+                const config = await response.json();
+
+                if (!config.supabase_url || !config.supabase_anon_key) {
+                    throw new Error("Configuration not loaded from server.");
+                }
+                
+                supabaseClient = window.supabase.createClient(config.supabase_url, config.supabase_anon_key);
+                setupEventListeners();
+                
+            } catch (error) {
+                document.body.innerHTML = `<div class="p-4 bg-red-100 text-red-800">Error: Could not load configuration from the server. The backend might be offline.</div>`;
+                console.error(error);
+            }
+        }
 
         const handleAuth = async (action, email, password) => {
             messageDiv.textContent = '';
@@ -65,7 +79,8 @@
                 messageDiv.textContent = error.message;
                 messageDiv.classList.add('text-red-600');
             } else if (data.session) {
-                window.location.href = '/'; // Redirect to main app on successful login
+                // THIS IS THE FIX: Always redirect to the root path.
+                window.location.href = '/'; 
             } else if (data.user && action === 'signup') {
                 messageDiv.textContent = 'Sign-up successful! Please check your email to verify.';
                 messageDiv.classList.remove('text-red-600');
@@ -77,24 +92,27 @@
             targetBtn.textContent = originalBtnText;
         };
 
-        loginForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            handleAuth('login', email, password);
-        });
+        function setupEventListeners() {
+            loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                handleAuth('login', email, password);
+            });
         
-        signupBtn.addEventListener('click', () => {
-             const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            if(!email || !password) {
-                messageDiv.textContent = 'Email and password are required to sign up.';
-                messageDiv.classList.add('text-red-600');
-                return;
-            }
-            handleAuth('signup', email, password);
-        });
+            signupBtn.addEventListener('click', () => {
+                 const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                if(!email || !password) {
+                    messageDiv.textContent = 'Email and password are required to sign up.';
+                    messageDiv.classList.add('text-red-600');
+                    return;
+                }
+                handleAuth('signup', email, password);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', initializeSupabase);
     </script>
 </body>
 </html>
-

@@ -4,7 +4,7 @@ import urllib.parse
 import concurrent.futures
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Tuple
 from dotenv import load_dotenv
@@ -85,10 +85,24 @@ class FinalAnalysis(BaseModel):
     high_risk_regions_analysis: str = Field(description="Detailed summary of activities in Africa and South America.")
 
 # --- App Initialization ---
-app = FastAPI(title="Odysseus API", version="3.6.2 (DB Schema Fix)")
+app = FastAPI(title="Odysseus API", version="3.7.0 (Apollo Email/Phone & Config Endpoint)")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(people.router)
 
+@app.get("/", include_in_schema=False)
+async def read_index():
+    return FileResponse("index.html")
+
+@app.get("/login", include_in_schema=False)
+async def read_login():
+    return FileResponse("login.html")
+
+@app.get("/config")
+def get_config():
+    return {
+        "supabase_url": os.getenv("SUPABASE_URL"),
+        "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY")
+    }
 
 # --- External API Functions ---
 def get_apollo_enrichment(domain: str) -> Optional[dict]:
@@ -166,7 +180,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
         "russia": [ f"'{company_name}' russia involvement", f"'{company_name}' statement on Russian operations after February 2022", f"'{company_name}' russia sanctions", f"'{company_name}' russia assets"],
         "size": [ f"'{company_name}' number of employees", f"'{company_name}' revenue", f"'{company_name}' market size"]
     }
-    llm_args = {"model": "gemini-1.5-pro", "google_api_key": gemini_api_key, "temperature": 0.1}
+    llm_args = {"model": "gemini-2.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(research_topics)) as executor:
         future_to_topic = {executor.submit(conduct_targeted_research, queries): topic for topic, queries in research_topics.items()}
@@ -174,7 +188,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
 
     prompts = {
         "geography": (GeographyAnalysis, f"""
-    You are a geopolitical risk analyst. Your task is to analyze the company's geographical footprint based on the provided research. **You must completely disregard any information related to Russia for this analysis.**
+    You are a geopolitical risk analyst. Your task is to analyze the company's geographical footprint based on the provided research. **You must completely disregard any information related to Russia for this analysis.** . If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring Rubric (0-10):**
       - **10:** Active, direct investments or assets in Ukraine.
       - **9:** Past or minority investments in Ukraine, or indirect supply-chain reliance.
@@ -191,7 +205,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     """),
         "industry": (IndustryAnalysis, f"""
     You are a seasoned partnership consultant and analyst with deep expertise in the upstream oil and gas sector.
-    Evaluate how well the company aligns with our primary investment thesis using the following scoring rubric.
+    Evaluate how well the company aligns with our primary investment thesis using the following scoring rubric. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring Rubric (0-10):**
       - **10:** (Profile A) Owners of operational and producing oil fields. OR (Profile B) Opportunistic/risk-seeking capital (hedge funds, PE, sovereign wealth funds known for high-risk/high-return investments).
       - **9:** Operational and producing gas fields. Relevant but secondary to oil.
@@ -208,7 +222,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     """),
         "russia": (RussiaAnalysis, f"""
     You are a compliance officer specializing in international sanctions against Russia.
-    Assess the company's ties to Russia using the detailed scoring rubric below, distinguishing between pre- and post-February 2022 activities.
+    Assess the company's ties to Russia using the detailed scoring rubric below, distinguishing between pre- and post-February 2022 activities. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring Rubric (0-10):**
       - **10:** No ties. Never operated, invested, or licensed in Russia.
       - **9:** Historic ties, but fully exited *before* Feb 24, 2022.
@@ -225,7 +239,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     """),
         "size": (SizeAnalysis, f"""
     You are an analyst sourcing mid-sized companies for potential partnerships.
-    Evaluate the company's size based on employee count and revenue from the dossier and research.
+    Evaluate the company's size based on employee count and revenue from the dossier and research. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring (0-10):** 10 for an ideal mid-market size (50-5000 employees). Score lower for companies that are too small (<10) or too large (>10,000).
     - **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`. Cite URLs from the transcript in your reasoning.
     """)
@@ -252,28 +266,34 @@ def get_gemini_vetting(company_data: dict) -> dict:
     print("✍️ Synthesizing final analysis...")
     final_llm = ChatGoogleGenerativeAI(**llm_args).with_structured_output(FinalAnalysis)
     final_prompt = f"""
-    You are a senior analyst synthesizing the findings from your team's research.
-    Based on the provided dossier and the following categorized research transcripts, generate a final, holistic investment profile for **{company_name}**.
-    Your output MUST contain all fields from the `FinalAnalysis` schema, providing detailed summaries for each.
+    You are a senior analyst synthesizing research for a Ukrainian upstream oil and gas asset management firm. Your sole focus is to find potential PARTNERS, not investments.
+    Based ONLY on the provided research transcript and dossier for **{company_name}**, generate a final, holistic profile only for this company.
+
+    **Primary Investment Thesis:** We are looking for partners who are **operators of upstream oil and gas assets**. Our ideal partner is a **mid-sized company (50-5,000 employees)** with a focus on **geopolitically high-risk regions (e.g., Africa, South America, Eastern Europe)**, and has **no ties to Russia**.
+
+    **Instructions for 'investment_reasoning':**
+    1.  **Strictly adhere to the provided text.** Do not use outside knowledge. If the text doesn't support a conclusion, state that the information is not available.
+    2.  Start your reasoning with "Yes", "No", or "Depends".
+    3.  **"No":** Immediately say "No" if the company is a direct competitor (an upstream oil/gas asset manager in Ukraine), or if it is completely irrelevant (e.g., a software or retail company with no energy assets). Also say "No" if it is geographically focused only on safe, developed markets (e.g., North America, Western Europe, Australia).
+    4.  **"Depends":** Use "Depends" for companies that meet some but not all criteria (e.g., they are in the right industry but the wrong size, or they are upstream but in a different geography). Explain the nuance clearly.
+    5.  **"Yes":** Only say "Yes" if the company is a strong fit across the majority of the criteria (Upstream Oil & Gas, Mid-Sized, High-Risk Geographies, No Russia Ties).
 
     **Company Name:** {company_name}
     **Dossier:** {json.dumps(dossier)}
 
-    --- GEOGRAPHY RESEARCH ---
+    --- RESEARCH TRANSCRIPTS (Use ONLY this information) ---
+    Geography Research:
     {topic_results['geography'][0]}
-    --- END GEOGRAPHY RESEARCH ---
 
-    --- INDUSTRY RESEARCH ---
+    Industry Research:
     {topic_results['industry'][0]}
-    --- END INDUSTRY RESEARCH ---
 
-    --- RUSSIA TIES RESEARCH ---
+    Russia Ties Research:
     {topic_results['russia'][0]}
-    --- END RUSSIA TIES RESEARCH ---
 
-    --- SIZE RESEARCH ---
+    Size Research:
     {topic_results['size'][0]}
-    --- END SIZE RESEARCH ---
+    --- END RESEARCH ---
     """
     final_analysis = final_llm.invoke(final_prompt)
 
@@ -299,11 +319,11 @@ def get_gemini_vetting(company_data: dict) -> dict:
 # --- API Endpoints ---
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def read_index():
-    with open("index.html") as f: return HTMLResponse(content=f.read())
+    return FileResponse("index.html")
 
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
 async def read_login():
-    with open("login.html") as f: return HTMLResponse(content=f.read())
+    return FileResponse("login.html")
 
 @app.get("/companies", response_model=List[VettedCompany], dependencies=[Depends(get_current_user)])
 def get_all_companies(supabase: Client = Depends(get_supabase)):
@@ -393,8 +413,16 @@ def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
 
 @app.post("/companies/{company_id}/reject", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def reject_company(company_id: int, supabase: Client = Depends(get_supabase)):
-    update_res = supabase.table('companies').update({'status': Status.REJECTED}).match({'id': company_id, 'status': Status.VETTED}).execute()
-    if not update_res.data: raise HTTPException(404, "Vetted company not found to reject")
+    # This query now allows rejection of companies in multiple statuses, not just 'Vetted'.
+    update_res = supabase.table('companies').update({'status': Status.REJECTED}).eq('id', company_id).execute()
+    
+    if not update_res.data:
+        raise HTTPException(404, "Company not found or could not be updated.")
+    
+    # Check that we are not rejecting an already approved company, which shouldn't happen from the UI
+    if update_res.data[0]['status'] == 'Approved':
+         raise HTTPException(400, "Cannot reject an already approved company.")
+
     return update_res.data[0]
 
 @app.post("/companies/clear-new", dependencies=[Depends(get_current_user)])
