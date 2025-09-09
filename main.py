@@ -411,18 +411,24 @@ def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
     approved_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
     return approved_res.data
 
+# In main.py
+
 @app.post("/companies/{company_id}/reject", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def reject_company(company_id: int, supabase: Client = Depends(get_supabase)):
-    # This query now allows rejection of companies in multiple statuses, not just 'Vetted'.
-    update_res = supabase.table('companies').update({'status': Status.REJECTED}).eq('id', company_id).execute()
+    # First, get the current status of the company
+    company_res = supabase.table('companies').select('status').eq('id', company_id).maybe_single().execute()
+    if not company_res.data:
+        raise HTTPException(404, "Company not found.")
     
+    # Prevent rejecting an already approved company
+    if company_res.data['status'] == 'Approved':
+        raise HTTPException(400, "Cannot reject a company that has already been approved.")
+
+    # Proceed with updating the status to Rejected
+    update_res = supabase.table('companies').update({'status': Status.REJECTED}).eq('id', company_id).execute()
     if not update_res.data:
         raise HTTPException(404, "Company not found or could not be updated.")
-    
-    # Check that we are not rejecting an already approved company, which shouldn't happen from the UI
-    if update_res.data[0]['status'] == 'Approved':
-         raise HTTPException(400, "Cannot reject an already approved company.")
-
+        
     return update_res.data[0]
 
 @app.post("/companies/clear-new", dependencies=[Depends(get_current_user)])
@@ -439,9 +445,19 @@ def clear_failed_companies(supabase: Client = Depends(get_supabase)):
 def delete_selected_companies(req: DeleteCompaniesRequest, supabase: Client = Depends(get_supabase)):
     if not req.company_ids:
         raise HTTPException(status_code=400, detail="No company IDs provided")
-    supabase.table('contacts').delete().in_('company_id', req.company_ids).execute()
-    delete_res = supabase.table('companies').delete().in_('id', req.company_ids).execute()
-    return {"message": f"{len(delete_res.data)} companies and their contacts were deleted."}
+    
+    try:
+        # First, delete all contacts associated with the selected companies.
+        # This must happen first to satisfy the foreign key constraint.
+        supabase.table('contacts').delete().in_('company_id', req.company_ids).execute()
+        
+        # Now, it is safe to delete the companies themselves.
+        delete_res = supabase.table('companies').delete().in_('id', req.company_ids).execute()
+        
+        return {"message": f"{len(delete_res.data)} companies and their associated contacts were deleted."}
+    except Exception as e:
+        # This will catch any database errors and prevent the server from crashing.
+        raise HTTPException(status_code=500, detail=f"An error occurred during deletion: {str(e)}")
 
 @app.get("/companies/{company_id}/contacts", response_model=List, dependencies=[Depends(get_current_user)])
 def get_contacts_for_company(company_id: int, supabase: Client = Depends(get_supabase)):
