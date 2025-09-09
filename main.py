@@ -328,7 +328,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     final_results['russia_sources'] = topic_results['russia'][1]
     final_results['size_sources'] = topic_results['size'][1]
 
-    weights = {'geography': 0.33, 'industry': 0.33, 'russia': 0.166, 'size': 0.166}
+    weights = {'geography': 0.4, 'industry': 0.4, 'russia': 0.0, 'size': 0.2}
     unified_score = sum(final_results.get(f'{topic}_score', 0) * weight for topic, weight in weights.items())
     final_results['unified_score'] = round(unified_score, 2)
     
