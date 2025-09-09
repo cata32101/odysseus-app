@@ -2,7 +2,7 @@ import os
 import json
 import urllib.parse
 import concurrent.futures
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -115,6 +115,26 @@ def get_apollo_enrichment(domain: str) -> Optional[dict]:
     except requests.exceptions.RequestException as e:
         print(f"Apollo API error for domain {domain}: {e}")
         return None
+
+def run_vetting_task(company_ids: List[int], supabase: Client):
+    """
+    This function will be run in the background.
+    It iterates through companies one by one to keep memory low.
+    """
+    print(f"Background task started: Vetting {len(company_ids)} companies.")
+    vetted_count = 0
+    for company_id in company_ids:
+        try:
+            # We need to fetch the company data again inside the task
+            company_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
+            if company_res.data:
+                result = vet_single_company(company_res.data, supabase)
+                if result:
+                    vetted_count += 1
+        except Exception as e:
+            print(f"Error vetting company ID {company_id} in background task: {e}")
+    print(f"Background task finished: Successfully vetted {vetted_count} companies.")
+
 
 def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
     apollo_api_key = os.getenv("APOLLO_API_KEY")
@@ -365,21 +385,11 @@ def vet_single_company(company: Dict, supabase: Client) -> Optional[Dict]:
         supabase.table('companies').update({'status': Status.FAILED}).eq('id', company['id']).execute()
         return None
 
-@app.post("/companies/vet", response_model=List[VettedCompany], dependencies=[Depends(get_current_user)])
-def vet_new_companies(req: VetCompaniesRequest, supabase: Client = Depends(get_supabase)):
+@app.post("/companies/vet", status_code=202, dependencies=[Depends(get_current_user)])
+def vet_new_companies(req: VetCompaniesRequest, background_tasks: BackgroundTasks, supabase: Client = Depends(get_supabase)):
     # FIX: Add the .in_('id', req.company_ids) filter here
-    response = supabase.table('companies').select('*').in_('id', req.company_ids).eq('status', 'New').execute()
-    companies_to_vet = response.data
-    vetted_companies = []
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_company = {executor.submit(vet_single_company, company, supabase): company for company in companies_to_vet}
-        for future in concurrent.futures.as_completed(future_to_company):
-            result = future.result()
-            if result:
-                vetted_companies.append(result)
-                
-    return vetted_companies
+    background_tasks.add_task(run_vetting_task, req.company_ids, supabase)
+    return {"message": f"Accepted: Vetting process for {len(req.company_ids)} companies has been started in the background."}
 
 @app.post("/companies/{company_id}/approve", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
