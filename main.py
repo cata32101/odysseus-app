@@ -85,7 +85,7 @@ class FinalAnalysis(BaseModel):
     high_risk_regions_analysis: str = Field(description="Detailed summary of activities in Africa and South America.")
 
 # --- App Initialization ---
-app = FastAPI(title="Odysseus API", version="3.7.0 (Apollo Email/Phone & Config Endpoint)")
+app = FastAPI(title="Odysseus API", version="4.0.0 (Production Stable)")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(people.router)
 
@@ -113,7 +113,8 @@ def get_apollo_enrichment(domain: str) -> Optional[dict]:
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=e.response.status_code if e.response else 503, detail=f"Apollo API error: {e}")
+        print(f"Apollo API error for domain {domain}: {e}")
+        return None
 
 def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
     apollo_api_key = os.getenv("APOLLO_API_KEY")
@@ -180,7 +181,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
         "russia": [ f"'{company_name}' russia involvement", f"'{company_name}' statement on Russian operations after February 2022", f"'{company_name}' russia sanctions", f"'{company_name}' russia assets"],
         "size": [ f"'{company_name}' number of employees", f"'{company_name}' revenue", f"'{company_name}' market size"]
     }
-    llm_args = {"model": "gemini-2.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
+    llm_args = {"model": "gemini-2.5-flash-", "google_api_key": gemini_api_key, "temperature": 0.2}
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(research_topics)) as executor:
         future_to_topic = {executor.submit(conduct_targeted_research, queries): topic for topic, queries in research_topics.items()}
@@ -267,7 +268,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     final_llm = ChatGoogleGenerativeAI(**llm_args).with_structured_output(FinalAnalysis)
     final_prompt = f"""
     You are a senior analyst synthesizing research for a Ukrainian upstream oil and gas asset management firm. Your sole focus is to find potential PARTNERS, not investments.
-    Based ONLY on the provided research transcript and dossier for **{company_name}**, generate a final, holistic profile only for this company.
+    Based ONLY on the provided research transcript and dossier for **{company_name}**, generate a final, holistic profile.
 
     **Primary Investment Thesis:** We are looking for partners who are **operators of upstream oil and gas assets**. Our ideal partner is a **mid-sized company (50-5,000 employees)** with a focus on **geopolitically high-risk regions (e.g., Africa, South America, Eastern Europe)**, and has **no ties to Russia**.
 
@@ -297,7 +298,6 @@ def get_gemini_vetting(company_data: dict) -> dict:
     """
     final_analysis = final_llm.invoke(final_prompt)
 
-    # --- Combine and Score ---
     final_results = {}
     for topic, analysis_model in all_results.items():
         final_results.update(analysis_model.dict())
@@ -317,14 +317,6 @@ def get_gemini_vetting(company_data: dict) -> dict:
 
 
 # --- API Endpoints ---
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def read_index():
-    return FileResponse("index.html")
-
-@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
-async def read_login():
-    return FileResponse("login.html")
-
 @app.get("/companies", response_model=List[VettedCompany], dependencies=[Depends(get_current_user)])
 def get_all_companies(supabase: Client = Depends(get_supabase)):
     response = supabase.table('companies').select('*').order('id', desc=True).execute()
@@ -352,6 +344,7 @@ def vet_single_company(company: Dict, supabase: Client) -> Optional[Dict]:
     try:
         supabase.table('companies').update({'status': Status.VETTING}).eq('id', company['id']).execute()
         apollo_data = get_apollo_enrichment(company['domain'])
+        
         if not apollo_data or not apollo_data.get("organization"): 
             raise Exception("Apollo enrichment failed or returned no organization data.")
         
@@ -411,20 +404,15 @@ def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
     approved_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
     return approved_res.data
 
-# In main.py
-
 @app.post("/companies/{company_id}/reject", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def reject_company(company_id: int, supabase: Client = Depends(get_supabase)):
-    # First, get the current status of the company
     company_res = supabase.table('companies').select('status').eq('id', company_id).maybe_single().execute()
     if not company_res.data:
         raise HTTPException(404, "Company not found.")
     
-    # Prevent rejecting an already approved company
     if company_res.data['status'] == 'Approved':
         raise HTTPException(400, "Cannot reject a company that has already been approved.")
 
-    # Proceed with updating the status to Rejected
     update_res = supabase.table('companies').update({'status': Status.REJECTED}).eq('id', company_id).execute()
     if not update_res.data:
         raise HTTPException(404, "Company not found or could not be updated.")
@@ -447,16 +435,12 @@ def delete_selected_companies(req: DeleteCompaniesRequest, supabase: Client = De
         raise HTTPException(status_code=400, detail="No company IDs provided")
     
     try:
-        # First, delete all contacts associated with the selected companies.
-        # This must happen first to satisfy the foreign key constraint.
         supabase.table('contacts').delete().in_('company_id', req.company_ids).execute()
         
-        # Now, it is safe to delete the companies themselves.
         delete_res = supabase.table('companies').delete().in_('id', req.company_ids).execute()
         
         return {"message": f"{len(delete_res.data)} companies and their associated contacts were deleted."}
     except Exception as e:
-        # This will catch any database errors and prevent the server from crashing.
         raise HTTPException(status_code=500, detail=f"An error occurred during deletion: {str(e)}")
 
 @app.get("/companies/{company_id}/contacts", response_model=List, dependencies=[Depends(get_current_user)])
