@@ -154,7 +154,7 @@ def conduct_targeted_research(queries: List[str]) -> tuple[str, List[Dict]]:
     
     transcript += "\n### Full Text of Top Articles\n"
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         future_to_url = {executor.submit(fetch_and_parse_url, source['url']): source for source in unique_sources[:5]}
         for future in concurrent.futures.as_completed(future_to_url):
             source = future_to_url[future]
