@@ -367,6 +367,7 @@ def vet_single_company(company: Dict, supabase: Client) -> Optional[Dict]:
 
 @app.post("/companies/vet", response_model=List[VettedCompany], dependencies=[Depends(get_current_user)])
 def vet_new_companies(req: VetCompaniesRequest, supabase: Client = Depends(get_supabase)):
+    # FIX: Add the .in_('id', req.company_ids) filter here
     response = supabase.table('companies').select('*').in_('id', req.company_ids).eq('status', 'New').execute()
     companies_to_vet = response.data
     vetted_companies = []
