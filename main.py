@@ -53,6 +53,7 @@ class VettedCompany(BaseCompany):
 
 class AddCompaniesRequest(BaseModel):
     domains: List[str]
+    group_name: Optional[str] = None
 class VetCompaniesRequest(BaseModel):
     company_ids: List[int]
 class DeleteCompaniesRequest(BaseModel):
@@ -347,7 +348,7 @@ def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supab
     try:
         existing_response = supabase.table('companies').select('domain').in_('domain', req.domains).execute()
         existing_domains = {item['domain'] for item in existing_response.data}
-        domains_to_add = [{'domain': d.strip(), 'status': 'New'} for d in req.domains if d.strip() and d.strip() not in existing_domains]
+        domains_to_add = [{'domain': d.strip(), 'status': 'New', 'group_name': req.group_name} for d in req.domains if d.strip() and d.strip() not in existing_domains] # Modified this line
         skipped_domains = [d for d in req.domains if d.strip() in existing_domains]
         
         added_count = 0

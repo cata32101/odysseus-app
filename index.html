@@ -519,7 +519,40 @@
             const currentSort = document.getElementById('sort-by').value;
             let filtered = allCompanies.filter(c => ((c.name || '').toLowerCase().includes(searchTerm) || c.domain.toLowerCase().includes(searchTerm)) && (statusFilter === 'all' || c.status === statusFilter));
             filtered.sort((a, b) => (currentSort === 'id') ? b.id - a.id : (b[currentSort] ?? -Infinity) - (a[currentSort] ?? -Infinity));
-            document.getElementById('companies-list').innerHTML = filtered.length ? filtered.map(renderCompanyListItem).join('') : '<p class="p-4 text-gray-500">No companies found.</p>';
+
+            // Grouping logic
+            const groupedCompanies = filtered.reduce((acc, company) => {
+                const group = company.group_name || 'Ungrouped';
+                if (!acc[group]) {
+                    acc[group] = [];
+                }
+                acc[group].push(company);
+                return acc;
+            }, {});
+
+            const companiesList = document.getElementById('companies-list');
+            companiesList.innerHTML = '';
+
+            for (const groupName in groupedCompanies) {
+                const groupHeader = document.createElement('div');
+                groupHeader.className = 'p-2 bg-slate-100 font-bold text-slate-600 text-sm sticky top-0';
+                groupHeader.innerHTML = `
+                    <span>${groupName}</span>
+                `;
+                companiesList.appendChild(groupHeader);
+
+                const groupCompanies = groupedCompanies[groupName];
+                groupCompanies.forEach(company => {
+                    const companyElement = document.createElement('div');
+                    companyElement.innerHTML = renderCompanyListItem(company);
+                    companiesList.appendChild(companyElement);
+                });
+            }
+
+            if (filtered.length === 0) {
+                companiesList.innerHTML = '<p class="p-4 text-gray-500">No companies found.</p>';
+            }
+
             updateVetButtonState(); 
             updateClearButtonsState();
             updateSelectionActionButtonsState();
@@ -572,8 +605,8 @@
                     <div class="p-4 border-b">
                         <h2 class="text-xl font-bold">Add & Vet Companies</h2>
                         <textarea id="domains-textarea" class="w-full mt-2 p-2 border rounded-md" rows="3" placeholder="carlyle.com\niskanderenergy.com"></textarea>
-                        <button id="add-companies-btn" class="w-full mt-2 bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700">Add Domains</button>
-                    </div>
+                        <input type="text" id="group-name-input" class="w-full mt-2 p-2 border rounded-md" placeholder="Optional: Group Name"> <button id="add-companies-btn" class="w-full mt-2 bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700">Add Domains</button>
+                </div>
                     <div class="p-4 border-b">
                          <h3 class="text-lg font-bold">Actions</h3>
                          <div class="grid grid-cols-2 gap-2 mt-2">
@@ -678,15 +711,19 @@
 
         const addCompanies = async () => {
             const domains = document.getElementById('domains-textarea').value.split('\n').map(d => d.trim()).filter(d => d);
+            const groupName = document.getElementById('group-name-input').value.trim(); // Add this line
             if (!domains.length) return showStatusMessage("Please enter at least one domain.", 'warning');
             const button = document.getElementById('add-companies-btn'); button.disabled = true;
             try {
-                const res = await authenticatedFetch(`${API_BASE_URL}/companies/add`, { method: 'POST', body: JSON.stringify({ domains }) });
+                const res = await authenticatedFetch(`${API_BASE_URL}/companies/add`, { method: 'POST', body: JSON.stringify({ domains, group_name: groupName }) }); // Modified this line
                 const result = await res.json(); if (!res.ok) throw new Error(result.detail);
                 let msg = `Added ${result.added_count} new domains.`;
                 if (result.skipped_domains?.length > 0) msg += ` Skipped ${result.skipped_domains.length} existing.`;
                 showStatusMessage(msg, 'success');
-                if (result.added_count > 0) document.getElementById('domains-textarea').value = '';
+                if (result.added_count > 0) {
+                    document.getElementById('domains-textarea').value = '';
+                    document.getElementById('group-name-input').value = ''; // Add this line
+                }
                 await fetchAndRenderCompanies();
             } catch (error) { showStatusMessage(error.message, 'error'); } finally { button.disabled = false; }
         };
