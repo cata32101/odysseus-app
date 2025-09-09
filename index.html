@@ -139,12 +139,42 @@
             }
             return response;
         };
-
+    
         const initializeApp = () => {
             populateViewHTML();
             setupEventListeners();
             fetchAndRenderCompanies();
+            listenForCompanyChanges(); // <-- ADD THIS LINE
             loadedViews.add('companies-view');
+        };
+    
+        // --- NEW FUNCTION TO HANDLE REAL-TIME UPDATES ---
+        const listenForCompanyChanges = () => {
+            supabaseClient
+                .channel('public:companies')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, payload => {
+                    console.log('Change received!', payload);
+                    const { eventType, new: newRecord, old: oldRecord } = payload;
+    
+                    if (eventType === 'INSERT') {
+                        allCompanies.unshift(newRecord);
+                    } else if (eventType === 'UPDATE') {
+                        const index = allCompanies.findIndex(c => c.id === newRecord.id);
+                        if (index !== -1) {
+                            allCompanies[index] = newRecord;
+                        }
+                    } else if (eventType === 'DELETE') {
+                        allCompanies = allCompanies.filter(c => c.id !== oldRecord.id);
+                    }
+    
+                    filterAndSortCompanies();
+    
+                    // If the updated company is the one being viewed, refresh the detail view
+                    if (newRecord && newRecord.id === activeCompanyId) {
+                        selectCompany(activeCompanyId);
+                    }
+                })
+                .subscribe();
         };
         
         // --- Core Data Fetching ---
