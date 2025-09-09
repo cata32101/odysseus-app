@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odysseus - Intelligence Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+        window.supabase = { createClient };
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader { border-top-color: #4f46e5; animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
+        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #f1f5f9; } ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .nav-item { display: flex; align-items: center; width: 100%; text-align: left; padding: 0.75rem; border-radius: 0.5rem; font-weight: 600; transition: background-color 0.2s, color 0.2s; }
+        .nav-item.active { background-color: #eef2ff; color: #4338ca; } .nav-item:not(.active):hover { background-color: #f3f4f6; }
+        .analysis-card { background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 1rem; margin-top: 1rem; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05); }
+        .analysis-card h4 { font-weight: 700; font-size: 1rem; color: #111827; margin-bottom: 0.5rem; border-bottom: 1px solid #f3f4f6; padding-bottom: 0.5rem;}
+        .analysis-card p, .analysis-card .detail-block { font-size: 0.875rem; line-height: 1.6; color: #4b5563; } .analysis-card .detail-block { margin-top: 0.75rem; } .analysis-card .detail-block strong { color: #374151; display: block; margin-bottom: 0.25rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;}
+        .sources-list { list-style-type: disc; padding-left: 1rem; max-height: 120px; overflow-y: auto; } .sources-list a { color: #4f46e5; }
+        .contact-status-sourced { background-color: #e0e7ff; color: #4338ca; } .contact-status-enriched { background-color: #d1fae5; color: #065f46; } .contact-status-pending { background-color: #fef3c7; color: #92400e; } .contact-status-failed { background-color: #fee2e2; color: #991b1b; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body class="bg-slate-50 text-gray-800">
+
+    <div id="app-container" class="flex h-screen hidden">
+        <nav class="w-64 bg-white p-4 flex flex-col flex-shrink-0 border-r border-slate-200">
+            <div class="flex items-center mb-8">
+                <svg class="w-10 h-10 text-indigo-600" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <h1 class="text-2xl font-bold ml-2 text-slate-800">Odysseus</h1>
+            </div>
+            <ul class="space-y-2">
+                <li><button id="nav-companies" class="nav-item active">Companies</button></li>
+                <li><button id="nav-people" class="nav-item">People</button></li>
+                <li><button id="nav-campaigns" class="nav-item">Outreach Campaigns</button></li>
+            </ul>
+             <div class="mt-auto">
+                <p id="user-email" class="text-xs text-gray-500 truncate" title="Logged in user"></p>
+                <button id="logout-btn" class="w-full mt-2 text-sm bg-gray-200 text-gray-700 font-semibold py-2 rounded-md hover:bg-gray-300">Logout</button>
+            </div>
+        </nav>
+        <main id="companies-view" class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-hidden"></main>
+        <main id="people-view" class="flex-1 flex flex-col p-6 overflow-y-auto hidden"></main>
+        <main id="campaigns-view" class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 overflow-y-auto hidden"></main>
+    </div>
+    
+    <div id="global-status-toast" class="fixed bottom-5 right-5 bg-green-100 text-green-800 text-sm font-semibold px-4 py-2 rounded-lg shadow-md transition-opacity duration-300 opacity-0 z-50"></div>
+    
+    <div id="clear-new-confirmation-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-bold text-gray-900">Are you sure?</h3>
+            <p class="mt-2 text-gray-600">This will permanently delete all 'New' companies. This action cannot be undone.</p>
+            <div class="mt-6 flex justify-end space-x-4">
+                <button onclick="closeModal('clear-new-confirmation-modal')" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                <button id="confirm-clear-new-btn" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Confirm Delete</button>
+            </div>
+        </div>
+    </div>
+    <div id="clear-failed-confirmation-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-bold text-gray-900">Are you sure?</h3>
+            <p class="mt-2 text-gray-600">This will permanently delete all 'Failed' companies. This action cannot be undone.</p>
+            <div class="mt-6 flex justify-end space-x-4">
+                <button onclick="closeModal('clear-failed-confirmation-modal')" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
+                <button id="confirm-clear-failed-btn" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Confirm Delete</button>
+            </div>
+        </div>
+    </div>
+    <div id="contact-detail-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-3xl mx-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="modal-contact-name" class="text-xl font-bold text-gray-900">Contact Details</h3>
+                <button onclick="closeModal('contact-detail-modal')" class="text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
+            </div>
+            <div id="modal-contact-body" class="overflow-y-auto"></div>
+        </div>
+    </div>
+    <div id="past-campaigns-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-900">Past Campaigns</h3>
+                <button onclick="closeModal('past-campaigns-modal')" class="text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
+            </div>
+            <div id="modal-past-campaigns-body" class="overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Supabase and Auth Setup ---
+        const SUPABASE_URL = "https://ryistscmowoarruukbao.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5aXN0c2Ntb3dvYXJydXVrYmFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY5NzY5MjMsImV4cCI6MjA3MjU1MjkyM30.KhtiscNWgDr4eaa_EHsfwMXH1tzQL1_LdC4qmoFz94c";
+        const API_BASE_URL = "http://127.0.0.1:8000";
+
+        if (SUPABASE_URL.includes("YOUR_SUPABASE")) {
+            document.body.innerHTML = `<div class="w-screen h-screen flex items-center justify-center bg-red-100 text-red-800"><p class="text-2xl font-bold">CRITICAL ERROR: Replace placeholder Supabase credentials in index.html before running.</p></div>`;
+        }
+
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let activeSession = null;
+
+        // --- Global State ---
+        let activeCompanyId = null;
+        let allCompanies = [];
+        let allContacts = [];
+        let allCampaignContacts = [];
+        let pastCampaigns = [];
+        let selectedCompanyIds = new Set();
+        let searchDebounceTimeout;
+        const loadedViews = new Set();
+        
+        // --- Auth & Initialization ---
+        const checkAuthAndInit = async () => {
+            const { data, error } = await supabaseClient.auth.getSession();
+            if (error || !data.session) {
+                window.location.href = './login';
+            } else {
+                activeSession = data.session;
+                document.getElementById('app-container').classList.remove('hidden');
+                document.getElementById('user-email').textContent = activeSession.user.email;
+                document.getElementById('user-email').title = activeSession.user.email;
+                initializeApp();
+            }
+        };
+
+        const authenticatedFetch = async (url, options = {}) => {
+            const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeSession.access_token}`, ...options.headers };
+            const response = await fetch(url, { ...options, headers });
+            if (response.status === 401) {
+                await supabaseClient.auth.signOut();
+                window.location.href = './login';
+            }
+            return response;
+        };
+
+        const initializeApp = () => {
+            populateViewHTML();
+            setupEventListeners();
+            fetchAndRenderCompanies();
+            loadedViews.add('companies-view');
+        };
+        
+        // --- Core Data Fetching ---
+        const fetchAndRenderCompanies = async () => {
+             try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/companies`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                allCompanies = await response.json();
+                filterAndSortCompanies();
+            } catch (error) {
+                console.error("Could not fetch companies:", error);
+                showStatusMessage("Could not connect to the backend.", "error");
+            }
+        };
+
+        const fetchAndRenderPeople = async () => {
+            const container = document.getElementById('people-list-container');
+            container.innerHTML = `<div class="text-center text-gray-500">Loading...</div>`;
+            try {
+                // Fetch people and past campaigns in parallel
+                const [peopleRes, campaignsRes] = await Promise.all([
+                    authenticatedFetch(`${API_BASE_URL}/contacts/`),
+                    authenticatedFetch(`${API_BASE_URL}/contacts/campaigns/past`)
+                ]);
+
+                if (!peopleRes.ok || !campaignsRes.ok) throw new Error(`HTTP error!`);
+                allContacts = await peopleRes.json();
+                pastCampaigns = await campaignsRes.json();
+                
+                populatePeopleFilter();
+                filterAndRenderPeople();
+            } catch (error) {
+                container.innerHTML = '<p class="text-center text-red-500">Could not load contacts.</p>';
+            }
+        };
+
+        const fetchAndRenderCampaigns = async () => {
+            const emailList = document.getElementById('email-campaign-list');
+            const linkedinList = document.getElementById('linkedin-campaign-list');
+            [emailList, linkedinList].forEach(el => el.innerHTML = `<div class="text-center text-gray-500">Loading...</div>`);
+            try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/contacts/?campaign_status=In Campaign`);
+                if (!response.ok) throw new Error(`HTTP error!`);
+                allCampaignContacts = await response.json();
+                const emailContacts = allCampaignContacts.filter(c => c.campaign_type === 'email');
+                const linkedinContacts = allCampaignContacts.filter(c => c.campaign_type === 'linkedin');
+                emailList.innerHTML = emailContacts.length > 0 ? `<div class="space-y-4">${emailContacts.map(c => renderEnrichedContactItem(c)).join('')}</div>` : '<p class="text-center text-gray-500 p-4">No contacts in email campaigns.</p>';
+                linkedinList.innerHTML = linkedinContacts.length > 0 ? `<div class="space-y-4">${linkedinContacts.map(c => renderEnrichedContactItem(c)).join('')}</div>` : '<p class="text-center text-gray-500 p-4">No contacts in LinkedIn campaigns.</p>';
+            } catch (error) {
+                 [emailList, linkedinList].forEach(el => el.innerHTML = `<p class="text-center text-red-500 p-4">Could not load contacts.</p>`);
+            }
+        };
+
+        // --- UI Rendering ---
+        const renderCompanyListItem = (company) => {
+            const statusClasses = { 'New': 'bg-gray-200 text-gray-800', 'Vetting': 'bg-blue-100 text-blue-800 animate-pulse', 'Vetted': 'bg-yellow-100 text-yellow-800', 'Approved': 'bg-green-100 text-green-800', 'Failed': 'bg-red-100 text-red-800', 'Rejected': 'bg-gray-400 text-white' };
+            const activeClass = company.id === activeCompanyId ? 'bg-indigo-50 border-indigo-500' : 'border-transparent';
+            const isSelected = selectedCompanyIds.has(company.id);
+            return `<div class="flex items-center p-4 border-l-4 hover:bg-slate-50 ${activeClass}">
+                    <input type="checkbox" class="mr-4 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" data-company-id="${company.id}" ${isSelected ? 'checked' : ''}>
+                    <div class="flex-grow cursor-pointer" onclick="selectCompany(${company.id})">
+                        <div class="flex justify-between items-center">
+                            <p class="font-bold truncate">${company.name || company.domain}</p>
+                            <span class="text-xs font-bold px-2 py-1 rounded-full ${statusClasses[company.status] || 'bg-gray-100'} flex-shrink-0">${company.status}</span>
+                        </div>
+                        <div class="text-sm text-gray-500 flex justify-between mt-1"><span>Unified Score: <span class="font-semibold">${company.unified_score ?? 'N/A'}</span></span></div>
+                    </div></div>`;
+        };
+        
+        const renderCompanyDetail = (company, contacts = []) => {
+            const getScoreColor = (score) => (score === null || score === undefined || score === 5) ? 'text-gray-500' : (score > 5 ? 'text-green-600' : 'text-red-600');
+            const renderAnalysisCard = (title, score, label, reasoning, sources) => {
+                const sourcesHTML = (!sources || sources.length === 0) 
+                    ? '<p class="text-xs text-gray-400 mt-2">No specific sources found.</p>' 
+                    : `<ul class="sources-list mt-2">${sources.map(s => `<li class="truncate"><a href="${s.url}" target="_blank" title="${s.name || ''}" class="hover:underline">${s.name || s.url}</a></li>`).join('')}</ul>`;
+
+                return `
+                <div class="analysis-card">
+                    <div class="flex justify-between items-center"><h4 class="!text-base">${title}</h4><div class="text-right"><span class="font-bold text-xs text-gray-500">${label}</span><p class="text-2xl font-bold ${getScoreColor(score)}">${score ?? 'N/A'}</p></div></div>
+                    <div class="detail-block"><strong>Reasoning</strong><p>${reasoning || 'No reasoning provided.'}</p></div>
+                    <div class="detail-block"><strong>Sources</strong>${sourcesHTML}</div>
+                </div>`;
+            };
+            const linkedInIcon = `<svg class="w-5 h-5 text-gray-400 hover:text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>`;
+            let detailContent = '';
+            if (['New', 'Vetting', 'Failed'].includes(company.status)) {
+                const messages = {'New': 'This company has not been vetted yet.', 'Vetting': 'Vetting in progress...', 'Failed': 'Vetting process failed for this company.'};
+                const colors = {'New': 'text-gray-500', 'Vetting': 'text-blue-500', 'Failed': 'text-red-700 bg-red-50'};
+                detailContent = `<div class="text-center p-8 rounded-lg ${colors[company.status]}"><h2 class="text-2xl font-bold">${company.domain}</h2><p class="mt-2">${messages[company.status]}</p></div>`;
+            } else {
+                 detailContent = `
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-2xl font-bold">${company.name}</h2>
+                                ${company.company_linkedin_url ? `<a href="${company.company_linkedin_url}" target="_blank">${linkedInIcon}</a>` : ''}
+                            </div>
+                            <p class="text-gray-500">${company.domain}</p>
+                        </div>
+                        <div class="flex space-x-2">${company.status === 'Vetted' ? `<button onclick="rejectCompany(${company.id}, this)" class="bg-red-500 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-600">Reject</button><button onclick="approveCompany(${company.id}, this)" class="bg-green-500 text-white font-bold px-4 py-2 rounded-lg hover:bg-green-600">Approve & Source</button>` : `<div class="p-2 rounded-lg bg-green-100 text-green-800 font-bold text-sm">Approved</div>`}</div>
+                    </div>
+                    <div class="grid grid-cols-1 gap-4 text-sm mt-6"><div class="bg-slate-50 p-3 rounded-lg border text-center"><h4 class="font-bold text-gray-600">Unified Score</h4><p class="text-4xl font-bold ${getScoreColor(company.unified_score)}">${company.unified_score ?? 'N/A'}</p></div></div>
+                    <div class="analysis-card bg-slate-50"><h4 class="!text-base">Investment Thesis Reasoning</h4><p>${company.investment_reasoning || "N/A"}</p></div>
+                    ${renderAnalysisCard('Geographical Analysis', company.geography_score, 'Geo Score', company.geography_reasoning, company.geography_sources)}
+                    ${renderAnalysisCard('Industry Analysis', company.industry_score, 'Industry Score', company.industry_reasoning, company.industry_sources)}
+                    ${renderAnalysisCard('Russia Ties Analysis', company.russia_score, 'Russia Score', company.russia_reasoning, company.russia_sources)}
+                    ${renderAnalysisCard('Company Size Analysis', company.size_score, 'Size Score', company.size_reasoning, company.size_sources)}
+                    <div class="mt-6 border-t pt-4"><h3 class="text-lg font-bold">Sourced Contacts (${contacts.length})</h3><div id="contact-list">${contacts.length > 0 ? contacts.map(renderSourcedContactItem).join('') : `<p class="text-sm text-gray-500 mt-2">${company.status === 'Approved' ? 'No contacts found.' : 'Approve to source.'}</p>`}</div></div>`;
+            }
+            document.getElementById('detail-view').innerHTML = detailContent;
+        };
+        
+        const renderSourcedContactItem = (contact) => {
+            const statusClasses = {'Sourced': 'contact-status-sourced', 'Pending Enrichment': 'contact-status-pending', 'Failed Enrichment': 'contact-status-failed', 'Enriched': 'contact-status-enriched'};
+            const linkedInIcon = `<svg class="w-4 h-4 text-gray-400 hover:text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>`;
+            const isProcessing = contact.status === 'Pending Enrichment';
+            return `<div id="contact-row-${contact.id}" class="flex justify-between items-center p-2 border-b"><div class="flex items-center gap-2 truncate"><p class="font-semibold">${contact.name}</p>${contact.linkedin_url ? `<a href="${contact.linkedin_url}" target="_blank">${linkedInIcon}</a>` : ''}<p class="text-sm text-gray-500 truncate hidden md:block">${contact.title}</p></div><div class="flex items-center space-x-2 flex-shrink-0"><span class="text-xs font-bold px-2 py-1 rounded-full ${statusClasses[contact.status] || ''}">${contact.status}</span><button onclick="approveContact(${contact.id}, this)" class="bg-indigo-600 text-white font-semibold text-xs py-1 px-3 rounded-md hover:bg-indigo-700" ${isProcessing || contact.status === 'Enriched' ? 'disabled' : ''}>${isProcessing ? `<div class="loader h-3 w-3 mx-auto border-2"></div>` : (contact.status === 'Enriched' ? 'Done' : 'Enrich')}</button></div></div>`;
+        };
+
+        const renderEnrichedContactItem = (contact) => {
+            const linkedInIcon = `<svg class="w-5 h-5 text-gray-500 hover:text-blue-700" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>`;
+            const photoUrl = contact.apollo_person_data?.person?.photo_url;
+            
+            let campaignStatusHTML;
+            if (contact.campaign_status === 'In Campaign') {
+                campaignStatusHTML = `<div class="px-3 py-1 text-sm font-bold rounded-full bg-blue-100 text-blue-800 capitalize">In ${contact.campaign_type} Campaign</div>`;
+            } else if (contact.campaign_status === 'Ready to Assign') {
+                 campaignStatusHTML = `<div class="px-3 py-1 text-sm font-bold rounded-full bg-yellow-100 text-yellow-800">Ready to Assign</div>`;
+            } else { // It's a past campaign name
+                campaignStatusHTML = `<div class="px-3 py-1 text-sm font-bold rounded-full bg-gray-200 text-gray-700" title="Part of a past campaign">${contact.campaign_status}</div>`;
+            }
+
+            return `<div class="bg-white p-4 rounded-lg shadow-sm border flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div class="flex-grow">
+                    <div class="flex items-center gap-3">
+                        <img src="${photoUrl || 'https://placehold.co/64x64/e2e8f0/64748b?text=??'}" onerror="this.onerror=null;this.src='https://placehold.co/64x64/e2e8f0/64748b?text=??';" alt="${contact.name}" class="w-16 h-16 rounded-full bg-gray-200 object-cover">
+                        <div>
+                            <p class="font-bold text-lg">${contact.name}</p>
+                            <p class="text-gray-600">${contact.title}</p>
+                            <p class="text-sm text-gray-500 font-medium">${contact.company_name}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-col md:items-end gap-3 flex-shrink-0">
+                     ${contact.linkedin_url ? `<a href="${contact.linkedin_url}" target="_blank" class="self-start md:self-end">${linkedInIcon}</a>` : ''}
+                    <div class="flex items-center space-x-2 w-full md:w-auto">
+                        ${campaignStatusHTML}
+                        <button onclick="showContactDetails(${contact.id})" class="bg-gray-200 hover:bg-gray-300 font-semibold py-1 px-3 rounded text-sm">Review</button>
+                    </div>
+                </div>
+            </div>`;
+        };
+        
+        // --- Core Actions ---
+        const selectCompany = async (companyId) => {
+            activeCompanyId = companyId;
+            filterAndSortCompanies();
+            document.getElementById('detail-view').innerHTML = '<div class="text-center p-8 flex items-center justify-center"><div class="loader h-8 w-8 border-4"></div><span class="ml-4">Loading details...</span></div>';
+            const selectedCompany = allCompanies.find(c => c.id === companyId);
+            if (!selectedCompany) { document.getElementById('detail-view').innerHTML = '<div class="text-center text-red-500">Could not find company details.</div>'; return; }
+            let contacts = [];
+            if (selectedCompany.status === 'Approved') {
+                try {
+                    const response = await authenticatedFetch(`${API_BASE_URL}/companies/${companyId}/contacts`);
+                    if (!response.ok) throw new Error();
+                    contacts = await response.json();
+                } catch (error) {
+                    showStatusMessage(`Could not fetch contacts for ${selectedCompany.name}.`, "error");
+                }
+            }
+            renderCompanyDetail(selectedCompany, contacts);
+        };
+
+        const approveContact = async (contactId, button) => {
+            const row = document.getElementById(`contact-row-${contactId}`);
+            const statusSpan = row.querySelector('span');
+            button.disabled = true; button.innerHTML = `<div class="loader h-3 w-3 mx-auto border-2"></div>`;
+            statusSpan.textContent = 'Pending Enrichment';
+            statusSpan.className = 'text-xs font-bold px-2 py-1 rounded-full contact-status-pending';
+            try {
+                 const response = await authenticatedFetch(`${API_BASE_URL}/contacts/${contactId}/approve`, { method: 'POST' });
+                 const updatedContact = await response.json();
+                 if (!response.ok) throw new Error(updatedContact.detail || 'Failed to enrich');
+                 
+                 statusSpan.textContent = 'Enriched';
+                 statusSpan.className = 'text-xs font-bold px-2 py-1 rounded-full contact-status-enriched';
+                 button.textContent = 'Done';
+                 showStatusMessage('Contact enriched successfully.', 'success');
+                 if (loadedViews.has('people-view')) {
+                     const index = allContacts.findIndex(c => c.id === updatedContact.id);
+                     if (index === -1) allContacts.unshift(updatedContact); else allContacts[index] = updatedContact;
+                     filterAndRenderPeople();
+                 }
+            } catch(error) { 
+                showStatusMessage(error.message, 'error');
+                statusSpan.textContent = 'Failed Enrichment';
+                statusSpan.className = 'text-xs font-bold px-2 py-1 rounded-full contact-status-failed';
+                button.disabled = false;
+                button.textContent = 'Enrich';
+            }
+        };
+
+        const approveCompany = async (companyId, button) => {
+            button.disabled = true; button.textContent = 'Approving...';
+            try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/companies/${companyId}/approve`, { method: 'POST' });
+                if (!response.ok) throw new Error((await response.json()).detail || 'Failed to approve');
+                const updatedCompany = await response.json();
+                const index = allCompanies.findIndex(c => c.id === companyId);
+                if (index !== -1) allCompanies[index] = updatedCompany;
+                await selectCompany(companyId);
+                filterAndSortCompanies();
+            } catch (error) {
+                showStatusMessage(error.message, 'error'); button.disabled = false; button.textContent = 'Approve & Source';
+            }
+        };
+
+        const rejectCompany = async (companyId, button) => {
+            button.disabled = true; button.textContent = 'Rejecting...';
+            try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/companies/${companyId}/reject`, { method: 'POST' });
+                if (!response.ok) throw new Error((await response.json()).detail || 'Failed to reject');
+                const updatedCompany = await response.json();
+                const index = allCompanies.findIndex(c => c.id === companyId);
+                if (index !== -1) allCompanies[index] = updatedCompany;
+                await selectCompany(companyId);
+                filterAndSortCompanies();
+            } catch (error) {
+                showStatusMessage(error.message, 'error'); button.disabled = false; button.textContent = 'Reject';
+            }
+        };
+
+        const addToCampaign = async (contactId, campaignType, button) => {
+            const parent = button.parentElement;
+            parent.querySelectorAll('button').forEach(b => b.disabled = true);
+            button.textContent = 'Adding...';
+            try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/contacts/${contactId}/campaign`, { method: 'POST', body: JSON.stringify({ campaign_type: campaignType }) });
+                if (!response.ok) throw new Error((await response.json()).detail || 'Failed to add to campaign');
+                const updatedContact = await response.json();
+                
+                const index = allContacts.findIndex(c => c.id === contactId);
+                if (index !== -1) allContacts[index] = updatedContact;
+                filterAndRenderPeople();
+                
+                showStatusMessage(`Contact added to ${campaignType} campaign.`, 'success');
+                closeModal('contact-detail-modal');
+            } catch(error) {
+                showStatusMessage(error.message, 'error');
+                parent.querySelectorAll('button').forEach(b => b.disabled = false);
+                button.textContent = `Add to ${campaignType.charAt(0).toUpperCase() + campaignType.slice(1)} Campaign`;
+            }
+        };
+
+        const updateOutreachMessage = async (contactId, button) => {
+            const subject = document.getElementById('modal-subject-line').value;
+            const body = document.getElementById('modal-email-body').value;
+            button.disabled = true; button.textContent = 'Saving...';
+            try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/contacts/${contactId}/message`, { method: 'PUT', body: JSON.stringify({ subject_line: subject, email_body: body }) });
+                if (!response.ok) throw new Error((await response.json()).detail || 'Failed to save');
+                const updatedContact = await response.json();
+                const updateInArray = (arr) => {
+                    const index = arr.findIndex(c => c.id === contactId);
+                    if (index !== -1) arr[index] = updatedContact;
+                };
+                updateInArray(allContacts);
+                updateInArray(allCampaignContacts);
+                showStatusMessage('Message updated successfully!', 'success');
+                closeModal('contact-detail-modal');
+            } catch (error) {
+                showStatusMessage(error.message, 'error');
+            } finally {
+                button.disabled = false; button.textContent = 'Save Message';
+            }
+        };
+
+        const archiveCampaign = async (campaignType) => {
+            const campaignName = prompt(`Please enter a name for this ${campaignType} campaign archive:`, `${new Date().toISOString().split('T')[0]} ${campaignType} Outreach`);
+            if (!campaignName) return;
+            const button = document.getElementById(`archive-${campaignType}-btn`);
+            button.disabled = true; button.textContent = 'Archiving...';
+            try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/contacts/campaigns/archive`, { method: 'POST', body: JSON.stringify({ campaign_type: campaignType, campaign_name: campaignName }) });
+                if (!response.ok) throw new Error((await response.json()).detail || 'Failed to archive');
+                showStatusMessage('Campaign archived successfully.', 'success');
+                // Refresh both campaigns and people views if they have been loaded
+                if(loadedViews.has('campaigns-view')) await fetchAndRenderCampaigns();
+                if(loadedViews.has('people-view')) await fetchAndRenderPeople();
+            } catch(error) {
+                showStatusMessage(error.message, 'error');
+            } finally {
+                button.disabled = false; button.textContent = `Finalize & Archive ${campaignType.charAt(0).toUpperCase() + campaignType.slice(1)} Campaign`;
+            }
+        };
+
+        const approveSelected = async () => {
+            const idsToProcess = Array.from(selectedCompanyIds).filter(id => allCompanies.find(c => c.id === id)?.status === 'Vetted');
+            if (idsToProcess.length === 0) return;
+            showStatusMessage(`Approving ${idsToProcess.length} companies...`);
+            await Promise.all(idsToProcess.map(id => authenticatedFetch(`${API_BASE_URL}/companies/${id}/approve`, { method: 'POST' })));
+            await fetchAndRenderCompanies();
+            showStatusMessage(`Finished approving ${idsToProcess.length} companies.`, 'success');
+        };
+        
+        const rejectSelected = async () => {
+            const idsToProcess = Array.from(selectedCompanyIds).filter(id => allCompanies.find(c => c.id === id)?.status === 'Vetted');
+            if (idsToProcess.length === 0) return;
+            showStatusMessage(`Rejecting ${idsToProcess.length} companies...`);
+            await Promise.all(idsToProcess.map(id => authenticatedFetch(`${API_BASE_URL}/companies/${id}/reject`, { method: 'POST' })));
+            await fetchAndRenderCompanies();
+            showStatusMessage(`Finished rejecting ${idsToProcess.length} companies.`, 'success');
+        };
+
+        const deleteSelected = async () => {
+            if (selectedCompanyIds.size === 0) return;
+            if (!confirm(`Are you sure you want to permanently delete ${selectedCompanyIds.size} selected companies and all their contacts? This cannot be undone.`)) return;
+            
+            const idsToDelete = Array.from(selectedCompanyIds);
+            try {
+                const response = await authenticatedFetch(`${API_BASE_URL}/companies/delete-selected`, { method: 'POST', body: JSON.stringify({ company_ids: idsToDelete }) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                if (idsToDelete.includes(activeCompanyId)) {
+                    activeCompanyId = null;
+                    document.getElementById('detail-view').innerHTML = '<div class="text-center text-gray-500">Select a company to see details.</div>';
+                }
+                selectedCompanyIds.clear();
+                await fetchAndRenderCompanies();
+                showStatusMessage('Selected companies deleted successfully.', 'success');
+            } catch (error) {
+                showStatusMessage(error.message, 'error');
+            }
+        };
+
+        // --- UI State & Filtering ---
+        const filterAndSortCompanies = () => {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const statusFilter = document.getElementById('filter-by-status').value;
+            const currentSort = document.getElementById('sort-by').value;
+            let filtered = allCompanies.filter(c => ((c.name || '').toLowerCase().includes(searchTerm) || c.domain.toLowerCase().includes(searchTerm)) && (statusFilter === 'all' || c.status === statusFilter));
+            filtered.sort((a, b) => (currentSort === 'id') ? b.id - a.id : (b[currentSort] ?? -Infinity) - (a[currentSort] ?? -Infinity));
+            document.getElementById('companies-list').innerHTML = filtered.length ? filtered.map(renderCompanyListItem).join('') : '<p class="p-4 text-gray-500">No companies found.</p>';
+            updateVetButtonState(); 
+            updateClearButtonsState();
+            updateSelectionActionButtonsState();
+        };
+
+        const filterAndRenderPeople = () => {
+            const searchTerm = document.getElementById('people-search-input').value.toLowerCase();
+            const campaignFilter = document.getElementById('people-filter-select').value;
+
+            let filtered = allContacts.filter(c => 
+                (c.name.toLowerCase().includes(searchTerm) || c.company_name.toLowerCase().includes(searchTerm))
+            );
+
+            if (campaignFilter !== "All") {
+                if (campaignFilter === "Past Campaigns") {
+                    filtered = filtered.filter(c => c.campaign_status && !['Ready to Assign', 'In Campaign'].includes(c.campaign_status));
+                } else {
+                     filtered = filtered.filter(c => c.campaign_status === campaignFilter);
+                }
+            }
+
+            document.getElementById('people-list-container').innerHTML = filtered.length > 0 ? `<div class="space-y-4">${filtered.map(renderEnrichedContactItem).join('')}</div>` : '<p class="text-center text-gray-500 p-4">No contacts match your filters.</p>';
+        };
+        
+        const populatePeopleFilter = () => {
+            const select = document.getElementById('people-filter-select');
+            select.innerHTML = `
+                <option value="All">All Statuses</option>
+                <option value="Ready to Assign">Ready to Assign</option>
+                <option value="In Campaign">In Campaign</option>
+                <option value="Past Campaigns">All Past Campaigns</option>
+            `;
+            if(pastCampaigns.length > 0) {
+                const pastCampaignsGroup = document.createElement('optgroup');
+                pastCampaignsGroup.label = 'Specific Past Campaigns';
+                pastCampaigns.forEach(pc => {
+                    const option = document.createElement('option');
+                    option.value = pc.name;
+                    option.textContent = pc.name;
+                    pastCampaignsGroup.appendChild(option);
+                });
+                select.appendChild(pastCampaignsGroup);
+            }
+        };
+
+        // --- Setup & Event Listeners ---
+        const populateViewHTML = () => {
+            document.getElementById('companies-view').innerHTML = `
+                <div class="flex flex-col bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
+                    <div class="p-4 border-b">
+                        <h2 class="text-xl font-bold">Add & Vet Companies</h2>
+                        <textarea id="domains-textarea" class="w-full mt-2 p-2 border rounded-md" rows="3" placeholder="carlyle.com\niskanderenergy.com"></textarea>
+                        <button id="add-companies-btn" class="w-full mt-2 bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700">Add Domains</button>
+                    </div>
+                    <div class="p-4 border-b">
+                         <h3 class="text-lg font-bold">Actions</h3>
+                         <div class="grid grid-cols-2 gap-2 mt-2">
+                            <button id="vet-companies-btn" class="w-full bg-blue-600 text-white font-semibold py-2 rounded-md hover:bg-blue-700 flex items-center justify-center"><span id="vet-btn-text">Vet New</span><div id="vet-btn-loader" class="hidden loader h-5 w-5 ml-2 border-2"></div></button>
+                            <button id="approve-selected-btn" class="w-full bg-green-600 text-white font-semibold py-2 rounded-md hover:bg-green-700">Approve Selected</button>
+                            <button id="reject-selected-btn" class="w-full bg-orange-500 text-white font-semibold py-2 rounded-md hover:bg-orange-600">Reject Selected</button>
+                            <button id="delete-selected-btn" class="w-full bg-red-600 text-white font-semibold py-2 rounded-md hover:bg-red-700">Delete Selected</button>
+                         </div>
+                         <div class="grid grid-cols-2 gap-2 mt-2">
+                            <button id="show-clear-new-modal-btn" class="w-full bg-gray-500 text-white text-sm font-semibold py-1 rounded-md hover:bg-gray-600">Clear All New</button>
+                            <button id="show-clear-failed-modal-btn" class="w-full bg-gray-500 text-white text-sm font-semibold py-1 rounded-md hover:bg-gray-600">Clear All Failed</button>
+                         </div>
+                    </div>
+                    <div class="p-4 border-b"><input type="text" id="search-input" class="w-full p-2 border rounded-md" placeholder="Search companies..."><div class="flex items-center justify-between mt-2 text-sm"><label for="sort-by">Sort By:</label><select id="sort-by" class="border rounded-md p-1"><option value="id">Recent</option><option value="unified_score">Score</option></select><label for="filter-by-status">Status:</label><select id="filter-by-status" class="border rounded-md p-1"><option value="all">All</option><option value="New">New</option><option value="Vetting">Vetting</option><option value="Vetted">Vetted</option><option value="Approved">Approved</option><option value="Failed">Failed</option><option value="Rejected">Rejected</option></select></div></div>
+                    <div id="companies-list" class="flex-grow overflow-y-auto"></div>
+                </div>
+                <div id="detail-view" class="bg-white rounded-lg shadow-sm overflow-y-auto p-6 border border-slate-200"><div class="text-center text-gray-500">Select a company to see details.</div></div>`;
+            
+            document.getElementById('people-view').innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <h1 class="text-3xl font-bold">Enriched People</h1>
+                    <div class="flex items-center gap-4">
+                        <input type="text" id="people-search-input" class="w-full max-w-xs p-2 border rounded-md" placeholder="Search by name or company...">
+                        <select id="people-filter-select" class="p-2 border rounded-md"></select>
+                    </div>
+                </div>
+                <div id="people-list-container"></div>`;
+
+            document.getElementById('campaigns-view').innerHTML = `
+                <div class="flex flex-col space-y-4"><div class="bg-white p-4 rounded-lg shadow-sm border"><div class="flex justify-between items-center"><h2 class="text-xl font-bold">Email Campaign</h2><button id="archive-email-btn" onclick="archiveCampaign('email')" class="bg-green-600 text-white font-semibold py-1 px-3 rounded-md text-sm hover:bg-green-700">Finalize & Archive</button></div><div id="email-campaign-list" class="mt-4 space-y-4"></div></div></div>
+                <div class="flex flex-col space-y-4"><div class="bg-white p-4 rounded-lg shadow-sm border"><div class="flex justify-between items-center"><h2 class="text-xl font-bold">LinkedIn Campaign</h2><button id="archive-linkedin-btn" onclick="archiveCampaign('linkedin')" class="bg-green-600 text-white font-semibold py-1 px-3 rounded-md text-sm hover:bg-green-700">Finalize & Archive</button></div><div id="linkedin-campaign-list" class="mt-4 space-y-4"></div></div><button onclick="viewPastCampaigns()" class="mt-4 w-full bg-gray-600 text-white font-semibold py-2 rounded-md hover:bg-gray-700">View Past Campaigns</button></div>`;
+        };
+
+        const setupEventListeners = () => {
+            const views = {'companies-view': fetchAndRenderCompanies, 'people-view': fetchAndRenderPeople, 'campaigns-view': fetchAndRenderCampaigns };
+            const navItems = { 'nav-companies': 'companies-view', 'nav-people': 'people-view', 'nav-campaigns': 'campaigns-view' };
+            
+            Object.keys(navItems).forEach(navId => {
+                document.getElementById(navId).addEventListener('click', () => {
+                    Object.values(navItems).forEach(viewId => document.getElementById(viewId).classList.toggle('hidden', viewId !== navItems[navId]));
+                    Object.keys(navItems).forEach(id => document.getElementById(id).classList.toggle('active', id === navId));
+                    const viewId = navItems[navId];
+                    if (!loadedViews.has(viewId)) {
+                        const fetchFn = views[viewId];
+                        if (fetchFn) {
+                            fetchFn();
+                            loadedViews.add(viewId);
+                        }
+                    }
+                });
+            });
+
+            document.getElementById('logout-btn').addEventListener('click', async () => { await supabaseClient.auth.signOut(); window.location.href = '/login'; });
+
+            document.body.addEventListener('click', (e) => {
+                const button = e.target.closest('button');
+                if (!button) return;
+                const handlers = {
+                    'add-companies-btn': addCompanies, 'vet-companies-btn': vetCompanies,
+                    'approve-selected-btn': approveSelected, 'reject-selected-btn': rejectSelected, 'delete-selected-btn': deleteSelected,
+                    'show-clear-new-modal-btn': () => openModal('clear-new-confirmation-modal'), 'show-clear-failed-modal-btn': () => openModal('clear-failed-confirmation-modal'),
+                    'confirm-clear-new-btn': () => clearCompanies('new'), 'confirm-clear-failed-btn': () => clearCompanies('failed'),
+                };
+                if (handlers[button.id]) handlers[button.id]();
+            });
+
+             document.body.addEventListener('change', (e) => {
+                if (['sort-by', 'filter-by-status'].includes(e.target.id)) filterAndSortCompanies();
+                if (e.target.id === 'people-filter-select') filterAndRenderPeople();
+                if (e.target.matches('#companies-list input[type="checkbox"]')) {
+                    const companyId = parseInt(e.target.dataset.companyId);
+                    if (e.target.checked) selectedCompanyIds.add(companyId); else selectedCompanyIds.delete(companyId);
+                    updateVetButtonState();
+                    updateSelectionActionButtonsState();
+                }
+            });
+            document.body.addEventListener('input', (e) => {
+                const filterMap = {'search-input': filterAndSortCompanies, 'people-search-input': filterAndRenderPeople};
+                if (filterMap[e.target.id]) {
+                    clearTimeout(searchDebounceTimeout);
+                    searchDebounceTimeout = setTimeout(filterMap[e.target.id], 300);
+                }
+            });
+        };
+        
+        // --- Full Function Definitions ---
+        const updateSelectionActionButtonsState = () => {
+            const hasVettedSelected = Array.from(selectedCompanyIds).some(id => allCompanies.find(c => c.id === id)?.status === 'Vetted');
+            document.getElementById('approve-selected-btn').disabled = !hasVettedSelected;
+            document.getElementById('reject-selected-btn').disabled = !hasVettedSelected;
+            document.getElementById('delete-selected-btn').disabled = selectedCompanyIds.size === 0;
+        };
+
+        const showStatusMessage = (message, type = 'success') => {
+            const toast = document.getElementById('global-status-toast');
+            toast.textContent = message;
+            toast.className = 'fixed bottom-5 right-5 text-sm font-semibold px-4 py-2 rounded-lg shadow-md transition-opacity duration-300 z-50 opacity-100';
+            const typeClasses = { 'error': 'bg-red-100 text-red-800', 'warning': 'bg-yellow-100 text-yellow-800', 'success': 'bg-green-100 text-green-800' };
+            toast.classList.add(...(typeClasses[type] || typeClasses.success).split(' '));
+            setTimeout(() => { toast.classList.add('opacity-0'); }, 4000);
+        };
+
+        const addCompanies = async () => {
+            const domains = document.getElementById('domains-textarea').value.split('\n').map(d => d.trim()).filter(d => d);
+            if (!domains.length) return showStatusMessage("Please enter at least one domain.", 'warning');
+            const button = document.getElementById('add-companies-btn'); button.disabled = true;
+            try {
+                const res = await authenticatedFetch(`${API_BASE_URL}/companies/add`, { method: 'POST', body: JSON.stringify({ domains }) });
+                const result = await res.json(); if (!res.ok) throw new Error(result.detail);
+                let msg = `Added ${result.added_count} new domains.`;
+                if (result.skipped_domains?.length > 0) msg += ` Skipped ${result.skipped_domains.length} existing.`;
+                showStatusMessage(msg, 'success');
+                if (result.added_count > 0) document.getElementById('domains-textarea').value = '';
+                await fetchAndRenderCompanies();
+            } catch (error) { showStatusMessage(error.message, 'error'); } finally { button.disabled = false; }
+        };
+
+        const vetCompanies = async () => {
+            let idsToVet = Array.from(selectedCompanyIds).filter(id => allCompanies.find(c => c.id === id)?.status === 'New');
+            if (idsToVet.length === 0) idsToVet = allCompanies.filter(c => c.status === 'New').map(c => c.id);
+            if (idsToVet.length === 0) return;
+
+            const btn = document.getElementById('vet-companies-btn'); btn.disabled = true;
+            document.getElementById('vet-btn-text').textContent = `Vetting (${idsToVet.length})...`;
+            document.getElementById('vet-btn-loader').classList.remove('hidden');
+            try {
+                const res = await authenticatedFetch(`${API_BASE_URL}/companies/vet`, { method: 'POST', body: JSON.stringify({ company_ids: idsToVet }) });
+                const results = await res.json(); if (!res.ok) throw new Error(results.detail);
+                await fetchAndRenderCompanies();
+                showStatusMessage(`Successfully vetted ${results.length} companies.`);
+                if (activeCompanyId && allCompanies.some(c => c.id === activeCompanyId)) await selectCompany(activeCompanyId);
+            } catch (error) { showStatusMessage(error.message, 'error'); } 
+            finally {
+                btn.disabled = false; document.getElementById('vet-btn-loader').classList.add('hidden');
+                selectedCompanyIds.clear(); filterAndSortCompanies();
+            }
+        };
+
+        const clearCompanies = async (status) => {
+            const modal = document.getElementById(`clear-${status}-confirmation-modal`);
+            const btn = document.getElementById(`confirm-clear-${status}-btn`);
+            btn.disabled = true; btn.textContent = 'Clearing...';
+            try {
+                await authenticatedFetch(`${API_BASE_URL}/companies/clear-${status}`, { method: 'POST' });
+                if (activeCompanyId && allCompanies.find(c => c.id === activeCompanyId)?.status.toLowerCase() === status) {
+                    activeCompanyId = null;
+                    document.getElementById('detail-view').innerHTML = '<div class="text-center text-gray-500">Select a company to see details.</div>';
+                }
+                await fetchAndRenderCompanies();
+                showStatusMessage(`All '${status}' companies have been cleared.`, 'success');
+            } catch (error) { showStatusMessage(error.message, 'error'); } 
+            finally { closeModal(modal.id); btn.disabled = false; btn.textContent = 'Confirm Delete'; }
+        };
+
+        const updateVetButtonState = () => {
+            const btn = document.getElementById('vet-companies-btn');
+            const btnText = document.getElementById('vet-btn-text');
+            const newSelectedCount = Array.from(selectedCompanyIds).filter(id => allCompanies.find(c => c.id === id)?.status === 'New').length;
+            if (newSelectedCount > 0) {
+                btnText.textContent = `Vet Selected (${newSelectedCount})`;
+                btn.disabled = false;
+            } else {
+                btnText.textContent = 'Vet All New';
+                btn.disabled = !allCompanies.some(c => c.status === 'New');
+            }
+        };
+
+        const updateClearButtonsState = () => {
+            document.getElementById('show-clear-new-modal-btn').disabled = !allCompanies.some(c => c.status === 'New');
+            document.getElementById('show-clear-failed-modal-btn').disabled = !allCompanies.some(c => c.status === 'Failed');
+        };
+        
+        const showContactDetails = (contactId) => {
+            const contact = allContacts.find(c => c.id === contactId) || allCampaignContacts.find(c => c.id === contactId);
+            if (!contact) { showStatusMessage("Could not find contact details.", "error"); return; }
+            document.getElementById('modal-contact-name').textContent = contact.name;
+            const modalBody = document.getElementById('modal-contact-body');
+            const inCampaign = contact.campaign_status === 'In Campaign';
+
+            modalBody.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h4 class="font-bold text-gray-700">Profile</h4>
+                        <div class="mt-2 text-sm space-y-2">
+                            <p><strong>Title:</strong> ${contact.title || 'N/A'}</p>
+                            <p><strong>Company:</strong> ${contact.company_name || 'N/A'}</p>
+                            <p><strong>Email:</strong> ${contact.email || 'N/A'}</p>
+                            <p><strong>LinkedIn:</strong> <a href="${contact.linkedin_url}" target="_blank" class="text-indigo-600 hover:underline">View Profile</a></p>
+                        </div>
+                        <h4 class="font-bold text-gray-700 mt-4">Russia Ties Analysis</h4>
+                        <div class="mt-2 text-sm bg-slate-50 p-3 rounded-md border">
+                            <p><strong>Risk:</strong> ${contact.russia_ties_analysis?.risk_assessment || 'N/A'}</p>
+                            <p class="mt-1"><strong>Summary:</strong> ${contact.russia_ties_analysis?.russia_ties_summary || 'N/A'}</p>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-gray-700">Generated Outreach Email</h4>
+                        <div class="mt-2 text-sm space-y-2">
+                             <div>
+                                <label for="modal-subject-line" class="block font-medium text-gray-600">Subject</label>
+                                <input type="text" id="modal-subject-line" class="w-full mt-1 p-2 border rounded-md" value="${contact.outreach_message?.subject_line || ''}">
+                            </div>
+                            <div>
+                                <label for="modal-email-body" class="block font-medium text-gray-600">Body</label>
+                                <textarea id="modal-email-body" class="w-full mt-1 p-2 border rounded-md" rows="8">${contact.outreach_message?.email_body || ''}</textarea>
+                            </div>
+                            <button onclick="updateOutreachMessage(${contact.id}, this)" class="w-full bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700">Save Message</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 border-t pt-4">
+                    <h4 class="font-bold text-gray-700">Campaign Assignment</h4>
+                    <div class="mt-2 flex space-x-2">
+                         <button onclick="addToCampaign(${contact.id}, 'email', this)" class="flex-1 bg-blue-500 text-white hover:bg-blue-600 font-semibold py-2 px-3 rounded text-sm" ${inCampaign ? 'disabled' : ''}>Add to Email Campaign</button>
+                         <button onclick="addToCampaign(${contact.id}, 'linkedin', this)" class="flex-1 bg-blue-700 text-white hover:bg-blue-800 font-semibold py-2 px-3 rounded text-sm" ${inCampaign ? 'disabled' : ''}>Add to LinkedIn Campaign</button>
+                    </div>
+                    ${inCampaign ? `<p class="text-xs text-center text-gray-500 mt-2">This contact is already in the ${contact.campaign_type} campaign.</p>` : ''}
+                </div>`;
+            openModal('contact-detail-modal');
+        };
+
+        const viewPastCampaigns = async () => {
+            const body = document.getElementById('modal-past-campaigns-body');
+            body.innerHTML = '<div class="text-center p-4">Loading past campaigns...</div>';
+            openModal('past-campaigns-modal');
+            try {
+                const res = await authenticatedFetch(`${API_BASE_URL}/contacts/campaigns/past`);
+                const campaigns = await res.json();
+                if (!res.ok) throw new Error(campaigns.detail);
+                if (campaigns.length === 0) {
+                    body.innerHTML = '<div class="text-center p-4">No past campaigns found.</div>';
+                    return;
+                }
+                body.innerHTML = `<div class="grid grid-cols-2 gap-4">
+                    <div id="past-campaign-list" class="flex flex-col space-y-2 pr-4 border-r overflow-y-auto max-h-[70vh]">
+                        ${campaigns.map(c => `<button onclick="viewPastCampaignDetails(${c.id}, this)" class="text-left p-2 rounded hover:bg-slate-100">
+                            <p class="font-semibold">${c.name}</p>
+                            <p class="text-sm text-gray-500">${new Date(c.archived_at).toLocaleDateString()} - ${c.contacts_count} contacts (${c.campaign_type})</p>
+                        </button>`).join('')}
+                    </div>
+                    <div id="past-campaign-details" class="overflow-y-auto max-h-[70vh]"><p class="text-gray-500">Select a campaign to view contacts.</p></div>
+                </div>`;
+            } catch (error) {
+                body.innerHTML = `<div class="text-center p-4 text-red-500">${error.message}</div>`;
+            }
+        };
+
+        const viewPastCampaignDetails = async (campaignId, button) => {
+            const container = document.getElementById('past-campaign-details');
+            container.innerHTML = '<div class="text-center p-4">Loading details...</div>';
+            document.querySelectorAll('#past-campaign-list button').forEach(btn => btn.classList.remove('bg-slate-200'));
+            button.classList.add('bg-slate-200');
+            try {
+                const res = await authenticatedFetch(`${API_BASE_URL}/contacts/campaigns/past/${campaignId}`);
+                const contacts = await res.json();
+                if (!res.ok) throw new Error(contacts.detail);
+                container.innerHTML = contacts.map(c => `<div class="p-2 border-b">
+                    <p class="font-bold">${c.contact_data.name}</p>
+                    <p class="text-sm text-gray-500">${c.contact_data.title} at ${c.contact_data.company_name}</p>
+                </div>`).join('');
+            } catch (error) {
+                container.innerHTML = `<div class="text-center p-4 text-red-500">${error.message}</div>`;
+            }
+        };
+        
+        const openModal = (id) => document.getElementById(id).classList.remove('hidden');
+        const closeModal = (id) => document.getElementById(id).classList.add('hidden');
+
+        Object.assign(window, { 
+            selectCompany, approveContact, approveCompany, rejectCompany,
+            addToCampaign, updateOutreachMessage, archiveCampaign, showContactDetails,
+            viewPastCampaigns, viewPastCampaignDetails, openModal, closeModal
+        });
+
+        document.addEventListener('DOMContentLoaded', checkAuthAndInit);
+    </script>
+</body>
+</html>
