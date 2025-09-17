@@ -295,7 +295,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     print("✍️ Synthesizing final analysis...")
     final_llm = ChatGoogleGenerativeAI(**llm_args).with_structured_output(FinalAnalysis)
     final_prompt = f"""
-    You are a senior analyst synthesizing research for a Ukrainian upstream oil and gas asset management firm. Your sole focus is to find potential PARTNERS, not investments.
+    You are a senior analyst synthesizing research for a Ukrainian upstream oil and gas asset management firm. Your sole focus is to find potential partners or potential investors in the upstream oil and gas sector.
     Based ONLY on the provided research transcript and dossier for **{company_name}**, generate a final, holistic profile.
 
     **Primary Investment Thesis:** We are looking for partners who are EITHER **investment firms, funds or offices with primary portfolio of upstream oil and gas sector** OR **operators of upstream oil and gas assets**. Our ideal partner is a **mid-sized company (50-5,000 employees)** with a focus on **geopolitically high-risk regions (e.g., Africa, South America, Eastern Europe)**, and has **no ties to Russia**.
@@ -303,8 +303,8 @@ def get_gemini_vetting(company_data: dict) -> dict:
     **Instructions for 'investment_reasoning':**
     1.  **Strictly adhere to the provided text.** Do not use outside knowledge. If the text doesn't support a conclusion, state that the information is not available.
     2.  Start your reasoning with "Yes", "No", or "Depends".
-    3.  **"No":** Immediately say "No" if the company is a direct competitor (an upstream oil/gas asset manager in Ukraine), or if it is completely irrelevant (e.g., a software or retail company with no energy assets). Also say "No" if it is geographically focused only on safe, developed markets (e.g., North America, Western Europe, Australia).
-    4.  **"Depends":** Use "Depends" for companies that meet some but not all criteria (e.g., they are in the right industry but the wrong size, or they are upstream but in a different geography). Explain the nuance clearly.
+    3.  **"No":** Immediately say "No" if the company is completely irrelevant (e.g., a software or retail company with no energy assets). 
+    4.  **"Depends":** Use "Depends" for companies that meet some but not all criteria (e.g., they are in the right industry but the wrong size, or they are upstream but in a different geography, or they meet all criteria but: have ties with russia,  are a huge conglomerate). Explain the nuance clearly.
     5.  **"Yes":** Only say "Yes" if the company is a strong fit across the majority of the criteria (Upstream Oil & Gas, Mid-Sized, High-Risk Geographies, No Russia Ties).
 
     **Company Name:** {company_name}
@@ -336,7 +336,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     final_results['russia_sources'] = topic_results['russia'][1]
     final_results['size_sources'] = topic_results['size'][1]
 
-    weights = {'geography': 0.4, 'industry': 0.4, 'russia': 0.0, 'size': 0.2}
+    weights = {'geography': 0.33, 'industry': 0.33, 'russia': 0.17, 'size': 0.17}
     unified_score = sum(final_results.get(f'{topic}_score', 0) * weight for topic, weight in weights.items())
     final_results['unified_score'] = round(unified_score, 2)
     
