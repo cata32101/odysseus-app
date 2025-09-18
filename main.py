@@ -40,7 +40,7 @@ def get_config():
 # --- External API Functions ---
 def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
     apollo_api_key = os.getenv("APOLLO_API_KEY")
-    if not apOLLO_API_KEY: raise HTTPException(500, "APOLLO_API_KEY not found")
+    if not apollo_api_key: raise HTTPException(500, "APOLLO_API_KEY not found")
     url = "https://api.apollo.io/v1/people/search"
     headers = {'Content-Type': 'application/json', "X-Api-Key": apollo_api_key}
     searches = {"c_level": {"titles": ["C-Level"], "per_page": 3}, "directors": {"titles": ["Director", "Head of"], "per_page": 4}, "managers": {"titles": ["Investment Manager", "Portfolio Manager", "Partner"], "per_page": 3}}
