@@ -1,0 +1,40 @@
+# kvk6/render.yaml
+
+services:
+  # 1. The Redis instance for Celery
+  - name: odysseus-redis
+    type: redis
+    plan: free # Or a paid plan for more resources
+    ipAllowList: [] # Allows all services in your Render account to connect
+
+  # 2. The main FastAPI Web Service
+  - name: odysseus-api
+    type: web
+    runtime: python
+    plan: starter # Or a paid plan for more resources
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn main:app --worker-class uvicorn.workers.UvicornWorker"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3 # Or your specific Python version
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: odysseus-redis
+          property: internalUrl # Use the internal URL for communication within Render
+
+  # 3. The Celery Background Worker
+  - name: odysseus-worker
+    type: worker
+    runtime: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "celery -A tasks.celery_app worker --loglevel=info"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: odysseus-redis
+          property: internalUrl
