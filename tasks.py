@@ -10,7 +10,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Local imports from your project
 from utils import fetch_and_parse_url, brightdata_search
-from main import (
+# MODIFICATION: Import from models.py, not main.py
+from models import (
     GeographyAnalysis, IndustryAnalysis, RussiaAnalysis, SizeAnalysis, FinalAnalysis, Status
 )
 
