@@ -1,4 +1,4 @@
-# kvk6/tasks.py
+# odysseus-app/tasks.py
 import os
 import json
 import concurrent.futures
@@ -18,9 +18,15 @@ from models import (
 load_dotenv()
 
 # --- Celery Configuration ---
-# MODIFICATION: Read the Redis URL from an environment variable
-# Render will automatically set REDIS_URL when we link the services.
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# MODIFICATION: More robust REDIS_URL handling with logging
+REDIS_URL = os.getenv("REDIS_URL")
+
+if not REDIS_URL:
+    print("WARNING: REDIS_URL environment variable not found. Defaulting to localhost.")
+    REDIS_URL = "redis://localhost:6379/0"
+
+print(f"INFO: Configuring Celery with broker URL: {REDIS_URL}")
+
 
 celery_app = Celery(
     'tasks',
