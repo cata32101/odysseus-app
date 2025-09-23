@@ -1,18 +1,18 @@
-# utils.py
+# odysseus-app/utils.py (Updated for better error logging)
 import os
-import json
 import requests
-import urllib.parse
-from bs4 import BeautifulSoup
-from supabase import create_client, Client
 from fastapi import Depends, HTTPException, Request
+from supabase import create_client, Client
+from gotrue.errors import AuthApiError # <-- CORRECTED IMPORT
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
+import urllib.parse
 
 load_dotenv()
 
 # --- Supabase Client Setup ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY") # Service role key for backend
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 def get_supabase() -> Client:
     """Dependency to get a Supabase client instance for backend operations."""
@@ -35,12 +35,19 @@ async def get_current_user(request: Request, supabase: Client = Depends(get_supa
         user_response = supabase.auth.get_user(token)
         user = user_response.user
         if not user:
-            raise HTTPException(status_code=401, detail="Invalid token or user not found")
+            raise HTTPException(status_code=401, detail="Token is valid, but user not found in Supabase.")
         return user
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-# --- Helper Functions ---
+    # This will now correctly catch the error
+    except AuthApiError as e:
+        # This will print the real reason to your backend terminal
+        print(f"!!! SUPABASE AUTHENTICATION ERROR: {e.message}") 
+        raise HTTPException(status_code=401, detail=f"Invalid Token: {e.message}")
+    except Exception as e:
+        print(f"!!! UNEXPECTED AUTH ERROR: {str(e)}")
+        raise HTTPException(status_code=401, detail="An unexpected error occurred during authentication.")
+    
+# --- Helper Functions (fetch_and_parse_url, brightdata_search) ---
+# ... (the rest of your file remains unchanged)
 def fetch_and_parse_url(url: str) -> str:
     """
     Fetches a URL and returns clean, stripped text content,

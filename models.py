@@ -28,6 +28,10 @@ class BaseCompany(BaseModel):
     company_linkedin_url: Optional[str] = None
     group_name: Optional[str] = None
 
+class MoveCompaniesRequest(BaseModel):
+    company_ids: List[int]
+    group_name: str
+
 class VettedCompany(BaseCompany):
     unified_score: Optional[float] = None
     geography_score: Optional[int] = None

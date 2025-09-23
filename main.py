@@ -18,17 +18,26 @@ load_dotenv()
 
 # --- App Initialization ---
 app = FastAPI(title="Odysseus API", version="4.0.0 (Production Stable)")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# --- THIS IS THE CHANGE ---
+# Define the specific origins that are allowed to connect.
+origins = [
+    "http://localhost:3000",  # The default Next.js dev server URL
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Use the specific list instead of "*"
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# --- END OF CHANGE ---
+
+
 app.include_router(people.router)
-
-# --- Static Pages ---
-@app.get("/", include_in_schema=False)
-async def read_index():
-    return FileResponse("index.html")
-
-@app.get("/login", include_in_schema=False)
-async def read_login():
-    return FileResponse("login.html")
 
 @app.get("/config")
 def get_config():
@@ -60,6 +69,7 @@ def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
 # --- API Endpoints ---
 @app.get("/companies", response_model=List[VettedCompany], dependencies=[Depends(get_current_user)])
 def get_all_companies(supabase: Client = Depends(get_supabase)):
+    # Now we fetch all columns because the detail modal needs them
     response = supabase.table('companies').select('*').order('id', desc=True).execute()
     return response.data
 
@@ -146,6 +156,16 @@ def delete_selected_companies(req: DeleteCompaniesRequest, supabase: Client = De
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during deletion: {str(e)}")
 
+@app.post("/companies/move-group", dependencies=[Depends(get_current_user)])
+def move_companies_to_group(req: MoveCompaniesRequest, supabase: Client = Depends(get_supabase)):
+    if not req.company_ids:
+        raise HTTPException(status_code=400, detail="No company IDs provided")
+    try:
+        update_res = supabase.table('companies').update({'group_name': req.group_name}).in_('id', req.company_ids).execute()
+        return {"message": f"Moved {len(update_res.data)} companies to group '{req.group_name}'."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
 @app.get("/companies/{company_id}/contacts", response_model=List, dependencies=[Depends(get_current_user)])
 def get_contacts_for_company(company_id: int, supabase: Client = Depends(get_supabase)):
     res = supabase.table('contacts').select('*, companies(name)').eq('company_id', company_id).order('id', desc=True).execute()
