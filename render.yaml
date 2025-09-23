@@ -34,3 +34,4 @@ services:
           type: redis
           name: odysseus-redis
           property: internalUrl # <-- This also gives the URL to the worker
+          
