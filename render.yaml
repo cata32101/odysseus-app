@@ -1,4 +1,4 @@
-# odysseus-app/render.yaml (Corrected)
+# render.yaml (Final Corrected Version)
 
 services:
   # 1. The Redis instance for Celery
@@ -19,7 +19,7 @@ services:
         fromService:
           type: redis
           name: odysseus-redis
-          property: internalUrl # <-- This tells Render to generate the correct URL
+          property: connectionString # <-- Correct property name
 
   # 3. The Celery Background Worker
   - name: odysseus-worker
@@ -33,5 +33,4 @@ services:
         fromService:
           type: redis
           name: odysseus-redis
-          property: internalUrl # <-- This also gives the URL to the worker
-          
+          property: connectionString # <-- Correct property name
