@@ -38,6 +38,19 @@ export interface Company {
   created_at?: string
 }
 
+export interface CompanyFilters {
+  search: string
+  status: Status[]
+  group: string[]
+  scoreRanges: {
+    unified: [number, number]
+    geography: [number, number]
+    industry: [number, number]
+    russia: [number, number]
+    size: [number, number]
+  }
+}
+  
 export interface Contact {
   id: number
   company_id: number
