@@ -21,7 +21,7 @@ export function CompanyFiltersComponent({ filters, onFiltersChange, companies }:
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [localScoreRanges, setLocalScoreRanges] = useState(filters.scoreRanges)
 
-  const statuses = ["New", "Vetting", "Vetted", "Approved", "Failed", "Rejected"]
+  const statuses: Status[] = ["New", "Vetting", "Vetted", "Approved", "Failed", "Rejected"]
   const groups = [...new Set(companies.map((c) => c.group_name).filter(Boolean))]
 
   const handleStatusToggle = (status: Status) => {
