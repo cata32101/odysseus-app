@@ -24,7 +24,7 @@ export function CompanyFiltersComponent({ filters, onFiltersChange, companies }:
   const statuses = ["New", "Vetting", "Vetted", "Approved", "Failed", "Rejected"]
   const groups = [...new Set(companies.map((c) => c.group_name).filter(Boolean))]
 
-  const handleStatusToggle = (status: string) => {
+  const handleStatusToggle = (status: Status) => {
     const newStatuses = filters.status.includes(status)
       ? filters.status.filter((s) => s !== status)
       : [...filters.status, status]
