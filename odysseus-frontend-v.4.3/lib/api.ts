@@ -1,4 +1,8 @@
-const API_BASE_URL = process.env.NODE_ENV === "development" ? "/api" : process.env.NEXT_PUBLIC_API_URL || ""
+// lib/api.ts
+import type { Company, Contact, PastCampaign, PastCampaignContact } from "./types"
+
+const API_BASE_URL =
+  process.env.NODE_ENV === "development" ? "http://localhost:8000" : process.env.NEXT_PUBLIC_API_URL || ""
 
 export class ApiClient {
   private baseUrl: string
@@ -29,99 +33,111 @@ export class ApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`)
+      const errorBody = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(`API Error: ${response.status} ${errorBody.detail || response.statusText}`);
+    }
+    
+    // Handle PDF downloads
+    if (response.headers.get("Content-Type")?.includes("application/pdf")) {
+        return response.blob() as Promise<T>;
     }
 
     return response.json()
   }
 
-  // Company endpoints
-  async getCompanies() {
+  // --- Company endpoints ---
+  async getCompanies(): Promise<Company[]> {
     return this.request("/companies")
   }
 
-  async addCompanies(domains: string[], groupName?: string) {
+  async addCompanies(domains: string[], groupName?: string): Promise<{ added_count: number; skipped_domains: string[] }> {
     return this.request("/companies/add", {
       method: "POST",
       body: JSON.stringify({ domains, group_name: groupName }),
     })
   }
 
-  async vetCompanies(companyIds: number[]) {
+  async vetCompanies(companyIds: number[]): Promise<{ message: string }> {
     return this.request("/companies/vet", {
       method: "POST",
       body: JSON.stringify({ company_ids: companyIds }),
     })
   }
 
-  async approveCompany(companyId: number) {
+  async approveCompany(companyId: number): Promise<Company> {
     return this.request(`/companies/${companyId}/approve`, {
       method: "POST",
     })
   }
 
-  async rejectCompany(companyId: number) {
+  async rejectCompany(companyId: number): Promise<Company> {
     return this.request(`/companies/${companyId}/reject`, {
       method: "POST",
     })
   }
 
-  async deleteCompanies(companyIds: number[]) {
+  async deleteCompanies(companyIds: number[]): Promise<{ message: string }> {
     return this.request("/companies/delete-selected", {
       method: "POST",
       body: JSON.stringify({ company_ids: companyIds }),
     })
   }
-
-  async moveCompanies(companyIds: number[], groupName: string) {
-    return this.request("/companies/move-group", {
-      method: "POST",
-      body: JSON.stringify({ company_ids: companyIds, group_name: groupName }),
-    })
+  
+  async getCompanyContacts(companyId: number): Promise<Contact[]> {
+      return this.request(`/companies/${companyId}/contacts`)
   }
 
-  // Contact endpoints
-  async getContacts() {
+  async downloadCompanyPDF(companyId: number): Promise<Blob> {
+    // This endpoint doesn't exist yet on the backend, but we can add the client method for it
+    return this.request(`/companies/${companyId}/pdf`)
+  }
+
+  // --- Contact endpoints ---
+  async getContacts(): Promise<Contact[]> {
     return this.request("/contacts")
   }
 
-  async approveContact(contactId: number) {
+  async approveContact(contactId: number): Promise<Contact> {
     return this.request(`/contacts/${contactId}/approve`, {
       method: "POST",
     })
   }
+  
+  async enrichContact(contactId: number): Promise<Contact> {
+      return this.approveContact(contactId);
+  }
 
-  async addContactToCampaign(contactId: number, campaignType: "email" | "linkedin") {
+  async addContactToCampaign(contactId: number, campaignType: "email" | "linkedin"): Promise<Contact> {
     return this.request(`/contacts/${contactId}/campaign`, {
       method: "POST",
       body: JSON.stringify({ campaign_type: campaignType }),
     })
   }
 
-  async updateContactMessage(contactId: number, subjectLine: string, emailBody: string) {
+  async updateContactMessage(contactId: number, subjectLine: string, emailBody: string): Promise<Contact> {
     return this.request(`/contacts/${contactId}/message`, {
       method: "PUT",
       body: JSON.stringify({ subject_line: subjectLine, email_body: emailBody }),
     })
   }
 
-  async archiveCampaign(campaignType: "email" | "linkedin", campaignName: string) {
+  async archiveCampaign(campaignType: "email" | "linkedin", campaignName: string): Promise<{ message: string }> {
     return this.request("/contacts/campaigns/archive", {
       method: "POST",
       body: JSON.stringify({ campaign_type: campaignType, campaign_name: campaignName }),
     })
   }
 
-  async getPastCampaigns() {
+  async getPastCampaigns(): Promise<PastCampaign[]> {
     return this.request("/contacts/campaigns/past")
   }
 
-  async getPastCampaignDetails(campaignId: number) {
+  async getPastCampaignDetails(campaignId: number): Promise<PastCampaignContact[]> {
     return this.request(`/contacts/campaigns/past/${campaignId}`)
   }
-
-  // Config endpoint
-  async getConfig() {
+  
+  // --- Config endpoint ---
+  async getConfig(): Promise<{ supabase_url: string; supabase_anon_key: string }> {
     return this.request("/config")
   }
 }
