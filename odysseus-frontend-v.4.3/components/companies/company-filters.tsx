@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import type { Company } from "@/lib/types"
+import type { Company, Status } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,9 +12,21 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { X, Search, ChevronDown, Filter } from "lucide-react"
 
 interface CompanyFiltersProps {
-  filters: any
-  onFiltersChange: (filters: any) => void
-  companies: Company[]
+  // Replace 'any' with a specific type definition
+  filters: {
+    search: string;
+    status: Status[];
+    group: string[];
+    scoreRanges: {
+      unified: [number, number];
+      geography: [number, number];
+      industry: [number, number];
+      russia: [number, number];
+      size: [number, number];
+    };
+  };
+  onFiltersChange: (filters: any) => void;
+  companies: Company[];
 }
 
 export function CompanyFiltersComponent({ filters, onFiltersChange, companies }: CompanyFiltersProps) {
