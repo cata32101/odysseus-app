@@ -14,16 +14,23 @@ import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
 
-interface CompaniesViewProps {
-  companies: Company[]
-  loading: boolean
-  onRefresh: () => void
+interface CompanyFilters {
+  search: string;
+  status: Status[];
+  group: string[];
+  scoreRanges: {
+    unified: [number, number];
+    geography: [number, number];
+    industry: [number, number];
+    russia: [number, number];
+    size: [number, number];
+  };
 }
 
-const defaultFilters = {
+const defaultFilters: CompanyFilters = {
   search: "",
-  status: [] as Status[],
-  group: [] as string[],
+  status: [],
+  group: [],
   scoreRanges: {
     unified: [0, 10],
     geography: [0, 10],
@@ -33,8 +40,9 @@ const defaultFilters = {
   },
 }
 
+
 export function CompaniesView({ companies, loading, onRefresh }: CompaniesViewProps) {
-  const [filters, setFilters] = useState(defaultFilters)
+  const [filters, setFilters] = useState<CompanyFilters>(defaultFilters)
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [selectedCompanies, setSelectedCompanies] = useState<number[]>([])
