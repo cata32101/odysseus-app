@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react"
-import type { Company } from "@/lib/types"
+import type { Company, Status } from "@/lib/types"
 import { CompanyTable } from "./company-table"
 import { CompanyFiltersComponent } from "./company-filters"
 import { AddCompaniesDialog } from "./add-companies-dialog"
@@ -13,6 +13,7 @@ import { Plus, TrendingUp, Users, Clock } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
+
 interface CompaniesViewProps {
   companies: Company[]
   loading: boolean
@@ -21,8 +22,8 @@ interface CompaniesViewProps {
 
 const defaultFilters = {
   search: "",
-  status: [],
-  group: [],
+  status: [] as Status[],
+  group: [] as string[],
   scoreRanges: {
     unified: [0, 10],
     geography: [0, 10],
