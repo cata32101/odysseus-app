@@ -9,10 +9,10 @@ from dotenv import load_dotenv
 from supabase import Client
 
 # Local imports
-import people
-from utils import get_supabase, get_current_user
-from tasks import run_vetting_task  # Import the Celery task
-from models import * # Import all models from our new models.py file
+from . import people
+from .utils import get_supabase, get_current_user
+from .tasks import run_vetting_task  # Import the Celery task
+from .models import * # Import all models from our new models.py file
 
 load_dotenv()
 

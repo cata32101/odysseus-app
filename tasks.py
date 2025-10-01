@@ -9,9 +9,9 @@ from supabase import create_client, Client
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Local imports from your project
-from utils import fetch_and_parse_url, brightdata_search
+from .utils import fetch_and_parse_url, brightdata_search
 # MODIFICATION: Import from models.py, not main.py
-from models import (
+from .models import (
     GeographyAnalysis, IndustryAnalysis, RussiaAnalysis, SizeAnalysis, FinalAnalysis, Status
 )
 

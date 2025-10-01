@@ -8,7 +8,7 @@ from enum import Enum
 from supabase import Client
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from utils import get_supabase, fetch_and_parse_url, brightdata_search
+from .utils import get_supabase, fetch_and_parse_url, brightdata_search
 
 # --- Router & Models ---
 router = APIRouter(prefix="/contacts", tags=["Contacts"])
