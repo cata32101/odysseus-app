@@ -13,6 +13,11 @@ import { Plus, TrendingUp, Users, Clock } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
+interface CompaniesViewProps {
+  companies: Company[]
+  loading: boolean
+  onRefresh: () => void
+}
 
 interface CompanyFilters {
   search: string;
