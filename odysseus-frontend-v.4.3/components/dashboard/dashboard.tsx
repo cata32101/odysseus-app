@@ -17,6 +17,9 @@ export type DashboardView = "companies" | "contacts" | "campaigns"
 export function Dashboard() {
   const [activeView, setActiveView] = useState<DashboardView>("companies")
   const [companies, setCompanies] = useState<Company[]>([])
+  const [totalCompanies, setTotalCompanies] = useState(0) // Add this state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const { user } = useAuth()
@@ -25,22 +28,23 @@ export function Dashboard() {
 
   // Load initial data
   useEffect(() => {
-    const loadData = async () => {
+    const loadData = async (page = currentPage, limit = itemsPerPage) => {
+      setLoading(true);
       try {
-        const [companiesData, contactsData] = await Promise.all([apiClient.getCompanies(), apiClient.getContacts()])
-        setCompanies(companiesData)
-        setContacts(contactsData)
+        const [{ data: companiesData, count: companiesCount }, contactsData] = await Promise.all([
+          apiClient.getCompanies(page, limit),
+          apiClient.getContacts()
+        ]);
+        setCompanies(companiesData);
+        setTotalCompanies(companiesCount); // Set the total count
+        setContacts(contactsData);
       } catch (error) {
-        console.error("Failed to load data:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load data. Please refresh the page.",
-          variant: "destructive",
-        })
+        // ... your error handling
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
+
 
     if (user) {
       loadData()
