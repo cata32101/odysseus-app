@@ -46,13 +46,32 @@ export class ApiClient {
   }
 
   // --- Company endpoints ---
-  async getCompanies(page: number = 1, limit: number = 10): Promise<{ data: Company[], count: number }> {
-    const response = await this.request(`/companies?page=${page}&limit=${limit}`, {
+  async getCompanies(
+    page: number = 1,
+    limit: number = 10,
+    filters: any
+    ): Promise<{ data: Company[]; count: number }> {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      search: filters.search || "",
+    });
+
+    if (filters.status) {
+      filters.status.forEach((s: string) => params.append("status", s));
+    }
+    if (filters.group) {
+      filters.group.forEach((g: string) => params.append("group", g));
+    }
+
+    const response = await this.request(`/companies?${params.toString()}`, {
       method: 'GET',
     });
-    // Supabase returns the count in the `content-range` header
-    const count = parseInt(response.headers.get('content-range')?.split('/')[1] || '0', 10);
+  
+    const countHeader = response.headers.get('content-range');
+    const count = countHeader ? parseInt(countHeader.split('/')[1], 10) : 0;
     const data = await response.json();
+
     return { data, count };
   }
 
