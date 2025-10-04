@@ -17,7 +17,7 @@ interface ContactFiltersProps {
 export function ContactFilters({ filters, onFiltersChange, contacts }: ContactFiltersProps) {
   const statuses = ["Sourced", "Pending Enrichment", "Enriched", "Failed Enrichment"]
   const campaignStatuses = ["Ready to Assign", "In Campaign"]
-  const companyNames = [...new Set(contacts.map((c) => c.company_name).filter(Boolean))]
+  const companyNames = [...new Set(contacts.map((c) => c.company_name).filter((name): name is string => typeof name === 'string'))]
 
   const handleStatusToggle = (status: string) => {
     const newStatuses = filters.status.includes(status)
