@@ -59,8 +59,9 @@ def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
 
 # --- API Endpoints ---
 @app.get("/companies", response_model=List[VettedCompany], dependencies=[Depends(get_current_user)])
-def get_all_companies(supabase: Client = Depends(get_supabase)):
-    response = supabase.table('companies').select('*').order('id', desc=True).execute()
+def get_all_companies(supabase: Client = Depends(get_supabase), page: int = 1, limit: int = 10):
+    offset = (page - 1) * limit
+    response = supabase.table('companies').select('*', count='exact').order('id', desc=True).range(offset, offset + limit - 1).execute()
     return response.data
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
