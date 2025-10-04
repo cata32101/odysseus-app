@@ -7,148 +7,140 @@ import { Header } from "./header"
 import { CompaniesView } from "../companies/companies-view"
 import { ContactsView } from "../contacts/contacts-view"
 import { CampaignsView } from "../campaigns/campaigns-view"
-import type { Company, Contact } from "@/lib/types"
+import type { Company, Contact, Status } from "@/lib/types"
 import { apiClient } from "@/lib/api"
 import { createClient } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 
 export type DashboardView = "companies" | "contacts" | "campaigns"
 
+// Define the filter interface and default values here
+interface CompanyFilters {
+  search: string;
+  status: Status[];
+  group: string[];
+  scoreRanges: {
+    unified: [number, number];
+    geography: [number, number];
+    industry: [number, number];
+    russia: [number, number];
+    size: [number, number];
+  };
+}
+
+const defaultFilters: CompanyFilters = {
+  search: "",
+  status: [],
+  group: [],
+  scoreRanges: {
+    unified: [0, 10],
+    geography: [0, 10],
+    industry: [0, 10],
+    russia: [0, 10],
+    size: [0, 10],
+  },
+};
+
+
 export function Dashboard() {
   const [activeView, setActiveView] = useState<DashboardView>("companies")
   const [companies, setCompanies] = useState<Company[]>([])
-  const [totalCompanies, setTotalCompanies] = useState(0) // Keep this
+  const [totalCompanies, setTotalCompanies] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
-  const [filters, setFilters] = useState(/* your default filters object */); // Add this
+  const [filters, setFilters] = useState<CompanyFilters>(defaultFilters);
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const { user } = useAuth()
   const { toast } = useToast()
   const supabase = createClient()
 
-  // Load initial data
-  // Set up real-time subscriptions
+  // Effect for loading data when filters, page, or user changes
   useEffect(() => {
-    if (!user) return
+    if (!user) return;
 
-    const handleCompanyChange = async () => {
-      console.log("Companies change detected, refetching current view...");
+    const loadData = async () => {
+      setLoading(true);
       try {
-        // Refetch the currently viewed page of companies with the active filters
-        const { data: updatedCompanies, count: updatedCount } = await apiClient.getCompanies(currentPage, itemsPerPage, filters);
-        setCompanies(updatedCompanies);
-        setTotalCompanies(updatedCount);
+        // Fetch contacts and companies in parallel
+        const [companyResponse, contactsData] = await Promise.all([
+          apiClient.getCompanies(currentPage, itemsPerPage, filters),
+          apiClient.getContacts()
+        ]);
+
+        setCompanies(companyResponse.data);
+        setTotalCompanies(companyResponse.count);
+        setContacts(contactsData);
       } catch (error) {
-        console.error("Failed to refresh companies on real-time update:", error);
+        console.error("Failed to load data:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load data. Please refresh the page.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
       }
     };
 
+    loadData();
+  }, [user, currentPage, itemsPerPage, filters, toast]);
+
+  // Effect for real-time subscriptions
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshData = async () => {
+        console.log("Change detected, refetching current view...");
+        try {
+            const { data, count } = await apiClient.getCompanies(currentPage, itemsPerPage, filters);
+            setCompanies(data);
+            setTotalCompanies(count);
+            
+            const updatedContacts = await apiClient.getContacts();
+            setContacts(updatedContacts);
+
+        } catch (error) {
+            console.error("Failed to refresh data on real-time update:", error);
+        }
+    }
+
     const companiesSubscription = supabase
       .channel("companies-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "companies" }, handleCompanyChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "companies" }, refreshData)
       .subscribe();
 
     const contactsSubscription = supabase
       .channel("contacts-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "contacts",
-        },
-        async (payload) => {
-          console.log("Contacts change detected:", payload)
-          try {
-            // Also refresh contacts data when a change occurs
-            const updatedContacts = await apiClient.getContacts()
-            setContacts(updatedContacts)
-          } catch (error) {
-            console.error("Failed to refresh contacts:", error)
-          }
-        },
-      )
-      .subscribe()
+      .on("postgres_changes", { event: "*", schema: "public", table: "contacts" }, refreshData)
+      .subscribe();
 
     return () => {
-      companiesSubscription.unsubscribe()
-      contactsSubscription.unsubscribe()
-    }
-    // Add all dependencies that the real-time handler uses
+      companiesSubscription.unsubscribe();
+      contactsSubscription.unsubscribe();
+    };
   }, [user, supabase, currentPage, itemsPerPage, filters]);
 
-
-    if (user) {
-      loadData()
-    }
-  }, [user, toast])
-
-  // Set up real-time subscriptions
-  useEffect(() => {
-    if (!user) return
-
-    const companiesSubscription = supabase
-      .channel("companies-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "companies",
-        },
-        async (payload) => {
-          console.log("Companies change detected:", payload)
-          try {
-            const updatedCompanies = await apiClient.getCompanies()
-            setCompanies(updatedCompanies)
-          } catch (error) {
-            console.error("Failed to refresh companies:", error)
-          }
-        },
-      )
-      .subscribe()
-
-    const contactsSubscription = supabase
-      .channel("contacts-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "contacts",
-        },
-        async (payload) => {
-          console.log("Contacts change detected:", payload)
-          try {
-            const updatedContacts = await apiClient.getContacts()
-            setContacts(updatedContacts)
-          } catch (error) {
-            console.error("Failed to refresh contacts:", error)
-          }
-        },
-      )
-      .subscribe()
-
-    return () => {
-      companiesSubscription.unsubscribe()
-      contactsSubscription.unsubscribe()
-    }
-  }, [user, supabase])
-
   const refreshData = async () => {
-    try {
-      const [companiesData, contactsData] = await Promise.all([apiClient.getCompanies(), apiClient.getContacts()])
-      setCompanies(companiesData)
-      setContacts(contactsData)
-    } catch (error) {
-      console.error("Failed to refresh data:", error)
-      toast({
-        title: "Error",
-        description: "Failed to refresh data.",
-        variant: "destructive",
-      })
-    }
+      setLoading(true);
+      try {
+        const [{ data: companiesData, count: companiesCount }, contactsData] = await Promise.all([
+          apiClient.getCompanies(currentPage, itemsPerPage, filters),
+          apiClient.getContacts()
+        ]);
+        setCompanies(companiesData);
+        setTotalCompanies(companiesCount);
+        setContacts(contactsData);
+      } catch (error) {
+        console.error("Failed to refresh data:", error)
+        toast({
+          title: "Error",
+          description: "Failed to refresh data.",
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false);
+      }
   }
 
   const renderActiveView = () => {
