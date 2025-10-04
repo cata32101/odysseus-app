@@ -28,19 +28,55 @@ export function Dashboard() {
   const supabase = createClient()
 
   // Load initial data
+  // Set up real-time subscriptions
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
+    if (!user) return
+
+    const handleCompanyChange = async () => {
+      console.log("Companies change detected, refetching current view...");
       try {
-        const { data, count } = await apiClient.getCompanies(currentPage, itemsPerPage, filters);
-        setCompanies(data);
-        setTotalCompanies(count);
+        // Refetch the currently viewed page of companies with the active filters
+        const { data: updatedCompanies, count: updatedCount } = await apiClient.getCompanies(currentPage, itemsPerPage, filters);
+        setCompanies(updatedCompanies);
+        setTotalCompanies(updatedCount);
       } catch (error) {
-        // ... your error handling
-      } finally {
-        setLoading(false);
+        console.error("Failed to refresh companies on real-time update:", error);
       }
-  };
+    };
+
+    const companiesSubscription = supabase
+      .channel("companies-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "companies" }, handleCompanyChange)
+      .subscribe();
+
+    const contactsSubscription = supabase
+      .channel("contacts-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "contacts",
+        },
+        async (payload) => {
+          console.log("Contacts change detected:", payload)
+          try {
+            // Also refresh contacts data when a change occurs
+            const updatedContacts = await apiClient.getContacts()
+            setContacts(updatedContacts)
+          } catch (error) {
+            console.error("Failed to refresh contacts:", error)
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      companiesSubscription.unsubscribe()
+      contactsSubscription.unsubscribe()
+    }
+    // Add all dependencies that the real-time handler uses
+  }, [user, supabase, currentPage, itemsPerPage, filters]);
 
 
     if (user) {
