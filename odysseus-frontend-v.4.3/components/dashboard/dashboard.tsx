@@ -44,6 +44,9 @@ export function Dashboard() {
         setLoading(false);
       }
     }
+    const refreshData = () => {
+      loadData(currentPage, itemsPerPage);
+    }
 
 
     if (user) {
