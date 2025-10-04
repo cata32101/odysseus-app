@@ -14,9 +14,18 @@ import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
 interface CompaniesViewProps {
-  companies: Company[]
-  loading: boolean
-  onRefresh: () => void
+  companies: Company[];
+  loading: boolean;
+  onRefresh: () => void;
+  // --- ADD THESE NEW PROPS ---
+  totalCompanies: number;
+  currentPage: number;
+  itemsPerPage: number;
+  onPageChange: (page: number) => void;
+  onItemsPerPageChange: (limit: number) => void;
+  filters: CompanyFilters;
+  onFiltersChange: (filters: CompanyFilters) => void;
+  // --- END OF NEW PROPS ---
 }
 
 interface CompanyFilters {
