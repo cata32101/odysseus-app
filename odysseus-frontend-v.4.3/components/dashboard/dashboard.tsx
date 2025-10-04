@@ -17,9 +17,10 @@ export type DashboardView = "companies" | "contacts" | "campaigns"
 export function Dashboard() {
   const [activeView, setActiveView] = useState<DashboardView>("companies")
   const [companies, setCompanies] = useState<Company[]>([])
-  const [totalCompanies, setTotalCompanies] = useState(0) // Add this state
+  const [totalCompanies, setTotalCompanies] = useState(0) // Keep this
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [filters, setFilters] = useState(/* your default filters object */); // Add this
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const { user } = useAuth()
@@ -28,25 +29,18 @@ export function Dashboard() {
 
   // Load initial data
   useEffect(() => {
-    const loadData = async (page = currentPage, limit = itemsPerPage) => {
+    const loadData = async () => {
       setLoading(true);
       try {
-        const [{ data: companiesData, count: companiesCount }, contactsData] = await Promise.all([
-          apiClient.getCompanies(page, limit),
-          apiClient.getContacts()
-        ]);
-        setCompanies(companiesData);
-        setTotalCompanies(companiesCount); // Set the total count
-        setContacts(contactsData);
+        const { data, count } = await apiClient.getCompanies(currentPage, itemsPerPage, filters);
+        setCompanies(data);
+        setTotalCompanies(count);
       } catch (error) {
         // ... your error handling
       } finally {
         setLoading(false);
       }
-    }
-    const refreshData = () => {
-      loadData(currentPage, itemsPerPage);
-    }
+  };
 
 
     if (user) {
