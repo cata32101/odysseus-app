@@ -1,7 +1,7 @@
 # kvk6/main.py
 import os
 import requests
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from typing import List
@@ -58,10 +58,29 @@ def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
     return list(all_people.values())
 
 # --- API Endpoints ---
-@app.get("/companies", response_model=List[VettedCompany], dependencies=[Depends(get_current_user)])
-def get_all_companies(supabase: Client = Depends(get_supabase), page: int = 1, limit: int = 10):
+@app.get("/companies", dependencies=[Depends(get_current_user)])
+def get_all_companies(
+    supabase: Client = Depends(get_supabase),
+    page: int = 1,
+    limit: int = 10,
+    search: str = "",
+    status: List[str] = Query(None),
+    group: List[str] = Query(None)
+):
     offset = (page - 1) * limit
-    response = supabase.table('companies').select('*', count='exact').order('id', desc=True).range(offset, offset + limit - 1).execute()
+    query = supabase.table('companies').select('*', count='exact').order('id', desc=True)
+
+    if search:
+        query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
+    
+    if status:
+        query = query.in_('status', status)
+
+    if group:
+        query = query.in_('group_name', group)
+
+    response = query.range(offset, offset + limit - 1).execute()
+    
     return response.data
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
