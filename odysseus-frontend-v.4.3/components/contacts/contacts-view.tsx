@@ -20,9 +20,9 @@ interface ContactsViewProps {
 
 const defaultFilters = {
   search: "",
-  status: [],
-  campaignStatus: [],
-  companyName: [],
+  status: [] as string[],
+  campaignStatus: [] as string[],
+  companyName: [] as string[],
 }
 
 export function ContactsView({ contacts, companies, loading, onRefresh }: ContactsViewProps) {
