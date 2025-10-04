@@ -22,7 +22,7 @@ export function CompanyFiltersComponent({ filters, onFiltersChange, companies }:
   const [localScoreRanges, setLocalScoreRanges] = useState(filters.scoreRanges)
 
   const statuses: Status[] = ["New", "Vetting", "Vetted", "Approved", "Failed", "Rejected"]
-  const groups = [...new Set(companies.map((c) => c.group_name).filter(Boolean))]
+  const groups = [...new Set(companies.map((c) => c.group_name).filter((name): name is string => typeof name === 'string'))]
 
   const handleStatusToggle = (status: Status) => {
     const newStatuses = filters.status.includes(status)
