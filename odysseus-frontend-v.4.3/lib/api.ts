@@ -46,11 +46,11 @@ export class ApiClient {
   }
 
   // --- Company endpoints ---
-  async getCompanies(
+async getCompanies(
     page: number = 1,
     limit: number = 10,
     filters: any
-    ): Promise<{ data: Company[]; count: number }> {
+  ): Promise<{ data: Company[]; count: number }> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
@@ -64,17 +64,31 @@ export class ApiClient {
       filters.group.forEach((g: string) => params.append("group", g));
     }
 
-    const response = await this.request(`/companies?${params.toString()}`, {
-      method: 'GET',
+    const url = `${this.baseUrl}/companies?${params.toString()}`;
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+    };
+    if (this.token) {
+      (headers as Record<string, string>).Authorization = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
     });
-  
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(`API Error: ${response.status} ${errorBody.detail || response.statusText}`);
+    }
+
     const countHeader = response.headers.get('content-range');
     const count = countHeader ? parseInt(countHeader.split('/')[1], 10) : 0;
     const data = await response.json();
 
     return { data, count };
   }
-
+  
   async addCompanies(domains: string[], groupName?: string): Promise<{ added_count: number; skipped_domains: string[] }> {
     return this.request("/companies/add", {
       method: "POST",
