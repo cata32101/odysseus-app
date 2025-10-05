@@ -65,12 +65,15 @@ def get_all_companies(
     limit: int = 10,
     search: str = "",
     status: List[str] = Query(None),
-    group: List[str] = Query(None)
+    group: List[str] = Query(None),
+    sort_by: str = 'created_at', 
+    sort_dir: str = 'desc'
 ):
     offset = (page - 1) * limit
-    query = supabase.table('companies').select('*', count='exact').order('id', desc=True)
-
-    # Start building the query
+    
+    # Determine if the sort direction is ascending
+    is_ascending = sort_dir.lower() == 'asc'
+    
     query = supabase.table('companies').select('*', count='exact')
 
     if search:
@@ -82,10 +85,12 @@ def get_all_companies(
     if group:
         query = query.in_('group_name', group)
 
-    # Add the sorting and pagination
-    response = query.order(sort_by, desc=not is_ascending).range(offset, offset + limit - 1).execute()
+    # Apply sorting
+    query = query.order(sort_by, desc=not is_ascending)
+
+    response = query.range(offset, offset + limit - 1).execute()
     
-    return response.data
+    return response
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
 def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supabase)):
