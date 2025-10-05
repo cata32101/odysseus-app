@@ -1,15 +1,15 @@
 "use client"
 
-import { useState, useMemo, useCallback, useRef } from "react"
+import { useState, useMemo } from "react"
 import type { Company, CompanyFilters, Status } from "@/lib/types"
-import { CompanyTable } from "./company-table"
-import { CompanyFiltersComponent } from "./company-filters"
-import { AddCompaniesDialog } from "./add-companies-dialog"
-import { CompanyDetailModal } from "./company-detail-modal"
-import { VettingWorkflow } from "./vetting-workflow"
+import { CompanyTable } from "@/components/companies/company-table"
+import { CompanyFiltersComponent } from "@/components/companies/company-filters"
+import { AddCompaniesDialog } from "@/components/companies/add-companies-dialog"
+import { CompanyDetailModal } from "@/components/companies/company-detail-modal"
+import { VettingWorkflow } from "@/components/companies/vetting-workflow"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Plus, TrendingUp, Users, Clock, CheckCircle } from "lucide-react" // FIX: Import CheckCircle
+import { Plus, TrendingUp, Users, Clock, CheckCircle, XCircle, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
@@ -49,25 +49,21 @@ export function CompaniesView({
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [selectedCompanies, setSelectedCompanies] = useState<number[]>([])
-  const tableRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
   const statistics = useMemo(() => {
+    if (!allCompaniesForStats) return { total: 0, new: 0, vetting: 0, approved: 0, vetted: 0, weeklyGrowth: 0 };
+    
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-    const companiesThisWeek = allCompaniesForStats.filter((c: Company) => {
-      if (!c.created_at) return false;
-      try {
-        const createdDate = new Date(c.created_at);
-        return createdDate >= oneWeekAgo;
-      } catch {
-        return false;
-      }
-    }).length;
+    const companiesThisWeek = allCompaniesForStats.filter((c: Company) => 
+      c.created_at && new Date(c.created_at) >= oneWeekAgo
+    ).length;
     
     const total = allCompaniesForStats.length;
-    const weeklyGrowth = total > 0 && (total - companiesThisWeek > 0) ? (companiesThisWeek / (total - companiesThisWeek)) * 100 : 0;
+    const previousTotal = total - companiesThisWeek;
+    const weeklyGrowth = previousTotal > 0 ? (companiesThisWeek / previousTotal) * 100 : (total > 0 ? 100 : 0);
 
     return {
       total: total,
@@ -76,11 +72,14 @@ export function CompaniesView({
       approved: allCompaniesForStats.filter((c) => c.status === "Approved").length,
       vetted: allCompaniesForStats.filter((c) => c.status === "Vetted").length,
       weeklyGrowth: isNaN(weeklyGrowth) ? 0 : weeklyGrowth,
-      companiesThisWeek,
     };
   }, [allCompaniesForStats]);
 
   const handleVetCompanies = async (companyIds: number[]) => {
+    if (companyIds.length === 0) {
+        toast({ title: "No New Companies to Vet", variant: "destructive" });
+        return;
+    }
     try {
       await apiClient.vetCompanies(companyIds);
       toast({
@@ -98,62 +97,43 @@ export function CompaniesView({
     }
   };
 
-  const handleVetAllNew = async () => {
-    const newCompanyIds = allCompaniesForStats.filter((c) => c.status === "New").map((c) => c.id)
-    if (newCompanyIds.length === 0) return
+  const handleApproveRejectSelected = async (action: 'approve' | 'reject') => {
+    const processableIds = selectedCompanies.filter(id => {
+        const company = allCompaniesForStats.find(c => c.id === id);
+        if (action === 'approve') return company?.status === 'Vetted';
+        if (action === 'reject') return ['Vetted', 'New'].includes(company?.status || '');
+        return false;
+    });
 
-    try {
-      await apiClient.vetCompanies(newCompanyIds)
-      toast({
-        title: "Vetting Started",
-        description: `Started vetting process for ${newCompanyIds.length} new companies.`,
-      })
-      onRefresh()
-    } catch (error) {
-      console.error("Failed to vet all new companies:", error)
-      toast({
-        title: "Error",
-        description: "Failed to start vetting process for new companies.",
-        variant: "destructive",
-      })
+    if (processableIds.length === 0) {
+        toast({ title: "No Actionable Companies Selected", description: `You can only ${action} companies with the appropriate status.`, variant: "destructive" });
+        return;
     }
-  }
 
-  const handleApproveCompany = async (companyId: number) => {
     try {
-      await apiClient.approveCompany(companyId);
-      toast({
-        title: "Company Approved",
-        description: "Company approved and contacts are being sourced.",
-      });
-      setSelectedCompany(null);
-      onRefresh();
+        if (action === 'approve') {
+            await apiClient.approveCompanies(processableIds);
+        } else {
+            await apiClient.rejectCompanies(processableIds);
+        }
+        toast({ title: `Companies ${action}d`, description: `Successfully processed ${processableIds.length} companies.` });
+        setSelectedCompanies([]);
+        onRefresh();
     } catch (error) {
-      console.error("Failed to approve company:", error);
-      toast({
-        title: "Error",
-        description: "Failed to approve company.",
-        variant: "destructive",
-      });
+        toast({ title: "Error", description: `Failed to ${action} companies.`, variant: "destructive" });
     }
   };
+  
+  const handleDeleteSelected = async () => {
+    if (selectedCompanies.length === 0) return;
 
-  const handleRejectCompany = async (companyId: number) => {
     try {
-      await apiClient.rejectCompany(companyId);
-      toast({
-        title: "Company Rejected",
-        description: "Company has been rejected.",
-      });
-      setSelectedCompany(null);
+      await apiClient.deleteCompanies(selectedCompanies);
+      toast({ title: "Companies Deleted", description: `Deleted ${selectedCompanies.length} companies.` });
+      setSelectedCompanies([]);
       onRefresh();
     } catch (error) {
-      console.error("Failed to reject company:", error);
-      toast({
-        title: "Error",
-        description: "Failed to reject company.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to delete companies.", variant: "destructive" });
     }
   };
 
@@ -170,17 +150,32 @@ export function CompaniesView({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {statistics.new > 0 && (
-            <Button onClick={handleVetAllNew} variant="outline" className="gap-2 bg-transparent">
-              Vet All New ({statistics.new})
-            </Button>
-          )}
           <Button onClick={() => setShowAddDialog(true)} className="gap-2">
             <Plus className="h-4 w-4" />
             Add Companies
           </Button>
         </div>
       </div>
+      
+      {selectedCompanies.length > 0 && (
+          <Card className="p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-muted-foreground">{selectedCompanies.length} selected</span>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={() => handleApproveRejectSelected('approve')}>
+                        <CheckCircle className="h-4 w-4 text-green-600"/> Approve
+                    </Button>
+                     <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={() => handleApproveRejectSelected('reject')}>
+                        <XCircle className="h-4 w-4 text-orange-600"/> Reject
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={handleDeleteSelected} className="gap-2">
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                </div>
+              </div>
+          </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -193,6 +188,12 @@ export function CompaniesView({
                 </div>
                 <Users className="h-10 w-10 text-muted-foreground" />
               </div>
+              {statistics.weeklyGrowth > 0 && (
+                 <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                    <TrendingUp className="h-4 w-4 text-emerald-500" />
+                    +{statistics.weeklyGrowth.toFixed(1)}% this week
+                </p>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -222,7 +223,7 @@ export function CompaniesView({
           <VettingWorkflow
             vettingCompanies={vettingCompanies}
             newCompanies={newCompanies}
-            onVetCompanies={handleVetCompanies}
+            onVetCompanies={() => handleVetCompanies(newCompanies.map(c => c.id))}
           />
         </div>
       </div>
@@ -230,11 +231,10 @@ export function CompaniesView({
       <CompanyFiltersComponent
         filters={filters}
         onFiltersChange={onFiltersChange}
-        companies={companies}
         allCompanies={allCompaniesForStats}
       />
 
-      <div ref={tableRef}>
+      <div>
         <CompanyTable
           companies={companies}
           loading={loading}
@@ -246,7 +246,7 @@ export function CompaniesView({
           totalPages={Math.ceil(totalCompanies / itemsPerPage)}
           onPageChange={onPageChange}
           itemsPerPage={itemsPerPage}
-          onItemsPerPageChange={onItemsPerPageChange} // FIX: Correct prop name
+          onItemsPerPageChange={onItemsPerPageChange}
           totalResults={totalCompanies}
           sortBy={sortBy}
           sortDir={sortDir}
@@ -261,10 +261,11 @@ export function CompaniesView({
           company={selectedCompany}
           open={!!selectedCompany}
           onOpenChange={(open) => !open && setSelectedCompany(null)}
-          onApprove={() => handleApproveCompany(selectedCompany.id)}
-          onReject={() => handleRejectCompany(selectedCompany.id)}
+          onApprove={() => apiClient.approveCompany(selectedCompany.id).then(onRefresh)}
+          onReject={() => apiClient.rejectCompany(selectedCompany.id).then(onRefresh)}
         />
       )}
     </div>
   );
 }
+

@@ -44,7 +44,7 @@ export class ApiClient {
  async getCompanies(
   page: number = 1,
   limit: number = 10,
-  filters: CompanyFilters,
+  filters: Partial<CompanyFilters>,
   sortBy: string = 'created_at',
   sortDir: string = 'desc'
 ): Promise<{ data: Company[]; count: number }> {
@@ -56,10 +56,10 @@ export class ApiClient {
     sort_dir: sortDir,
   });
 
-  if (filters.status) {
+  if (filters.status && filters.status.length > 0) {
     filters.status.forEach((s: string) => params.append("status", s));
   }
-  if (filters.group) {
+  if (filters.group && filters.group.length > 0) {
     filters.group.forEach((g: string) => params.append("group", g));
   }
 
@@ -97,7 +97,6 @@ export class ApiClient {
   return { data, count };
 }
 
-// New method to call the stats endpoint
 async getCompaniesForStats(): Promise<Company[]> {
     const response = await this.request(`/companies/stats`);
     return response.json();
@@ -132,6 +131,22 @@ async rejectCompany(companyId: number): Promise<Company> {
     method: "POST",
   });
   return response.json();
+}
+
+async approveCompanies(companyIds: number[]): Promise<{ message: string }> {
+    const response = await this.request("/companies/approve-selected", {
+      method: "POST",
+      body: JSON.stringify({ company_ids: companyIds }),
+    });
+    return response.json();
+}
+
+async rejectCompanies(companyIds: number[]): Promise<{ message: string }> {
+    const response = await this.request("/companies/reject-selected", {
+        method: "POST",
+        body: JSON.stringify({ company_ids: companyIds }),
+    });
+    return response.json();
 }
 
 async deleteCompanies(companyIds: number[]): Promise<{ message: string }> {

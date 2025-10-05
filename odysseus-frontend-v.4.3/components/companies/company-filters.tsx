@@ -14,7 +14,6 @@ import { X, Search, ChevronDown, Filter } from "lucide-react"
 interface CompanyFiltersProps {
   filters: CompanyFilters
   onFiltersChange: (filters: CompanyFilters) => void
-  companies: Company[]
   allCompanies: Company[]
 }
 

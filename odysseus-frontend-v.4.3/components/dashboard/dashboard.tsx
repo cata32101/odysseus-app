@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/hooks/use-auth"
+import { createClient } from "@/lib/supabase"
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
 import { CompaniesView } from "../companies/companies-view"
@@ -40,21 +41,54 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true)
   const { user } = useAuth()
   const { toast } = useToast()
+  const supabase = createClient()
+
+  const isScoreFilterActive = useCallback(() => {
+    const { scoreRanges } = filters;
+    return (
+      scoreRanges.unified[0] > 0 || scoreRanges.unified[1] < 10 ||
+      scoreRanges.geography[0] > 0 || scoreRanges.geography[1] < 10 ||
+      scoreRanges.industry[0] > 0 || scoreRanges.industry[1] < 10 ||
+      scoreRanges.russia[0] > 0 || scoreRanges.russia[1] < 10 ||
+      scoreRanges.size[0] > 0 || scoreRanges.size[1] < 10
+    );
+  }, [filters]);
 
   const refreshData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const [companyResponse, contactsData, allCompaniesResponse] = await Promise.all([
-        apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
+      let finalCompanies: Company[] = [];
+      let finalCount = 0;
+
+      // Use composite queries if a score filter is active
+      if (isScoreFilterActive()) {
+        const [scoredResponse, unscoredResponse] = await Promise.all([
+          apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
+          apiClient.getCompanies(1, 1000, { ...filters, status: ['New', 'Failed'], scoreRanges: defaultFilters.scoreRanges }, 'created_at', 'desc')
+        ]);
+        
+        const combined = [...scoredResponse.data, ...unscoredResponse.data];
+        const uniqueCompanies = Array.from(new Map(combined.map(c => [c.id, c])).values());
+        
+        finalCompanies = uniqueCompanies;
+        finalCount = scoredResponse.count + unscoredResponse.count; // This is an approximation
+      } else {
+        // Standard fetch if no score filters
+        const companyResponse = await apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir);
+        finalCompanies = companyResponse.data;
+        finalCount = companyResponse.count;
+      }
+
+      const [contactsData, allCompaniesResponse] = await Promise.all([
         apiClient.getContacts(),
-        apiClient.getCompaniesForStats() // Use the new lightweight endpoint
+        apiClient.getCompaniesForStats()
       ]);
 
-      setCompanies(companyResponse.data);
-      setTotalCompanies(companyResponse.count);
+      setCompanies(finalCompanies);
+      setTotalCompanies(finalCount);
       setContacts(contactsData);
-      setAllCompaniesForStats(allCompaniesResponse); // The stats endpoint returns the data directly
+      setAllCompaniesForStats(allCompaniesResponse);
     } catch (error) {
       console.error("Failed to refresh data:", error)
       toast({
@@ -65,11 +99,30 @@ export function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir, toast]);
+  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir, toast, isScoreFilterActive]);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+  
+  // Real-time listener for live updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('realtime-companies')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, (payload) => {
+        console.log('Change received!', payload);
+        toast({ title: "Data updated", description: "The company list has been updated in real-time." });
+        refreshData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, user, refreshData, toast]);
+
 
   const handleSortChange = (field: string) => {
     if (sortBy === field) {
@@ -78,7 +131,7 @@ export function Dashboard() {
       setSortBy(field);
       setSortDir(field.includes('_score') ? 'desc' : 'asc');
     }
-    setCurrentPage(1); // Reset to first page on sort change
+    setCurrentPage(1);
   };
   
   const renderActiveView = () => {
@@ -103,7 +156,6 @@ export function Dashboard() {
           />
         )
       case "contacts":
-        // Pass the full list of companies to the contacts view for filtering context
         return <ContactsView contacts={contacts} companies={allCompaniesForStats} loading={loading} onRefresh={refreshData} />
       case "campaigns":
         return <CampaignsView contacts={contacts} loading={loading} onRefresh={refreshData} />
