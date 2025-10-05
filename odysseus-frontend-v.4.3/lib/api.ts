@@ -16,7 +16,7 @@ export class ApiClient {
     this.token = token
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async request(endpoint: string, options: RequestInit = {}, returnJson = true): Promise<any> {
     const url = `${this.baseUrl}${endpoint}`
     const headers: HeadersInit = {
       "Content-Type": "application/json",
@@ -37,12 +37,14 @@ export class ApiClient {
       throw new Error(`API Error: ${response.status} ${errorBody.detail || response.statusText}`);
     }
     
-    // Handle PDF downloads
-    if (response.headers.get("Content-Type")?.includes("application/pdf")) {
-        return response.blob() as Promise<T>;
+    if (returnJson) {
+        if (response.headers.get("Content-Type")?.includes("application/pdf")) {
+            return response.blob();
+        }
+        return response.json();
     }
 
-    return response.json()
+    return response;
   }
 
   // --- Company endpoints ---
@@ -50,8 +52,8 @@ export class ApiClient {
     page: number = 1,
     limit: number = 10,
     filters: any,
-    sortBy: string = 'created_at', // Add sortBy
-    sortDir: string = 'desc'       // Add sortDir
+    sortBy: string = 'created_at',
+    sortDir: string = 'desc'
   ): Promise<{ data: Company[]; count: number }> {
     const params = new URLSearchParams({
       page: String(page),
@@ -60,7 +62,7 @@ export class ApiClient {
       sort_by: sortBy,
       sort_dir: sortDir,
     });
-    
+
     if (filters.status) {
       filters.status.forEach((s: string) => params.append("status", s));
     }
@@ -68,23 +70,9 @@ export class ApiClient {
       filters.group.forEach((g: string) => params.append("group", g));
     }
 
-    const url = `${this.baseUrl}/companies?${params.toString()}`;
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-    };
-    if (this.token) {
-      (headers as Record<string, string>).Authorization = `Bearer ${this.token}`;
-    }
-
-    const response = await fetch(url, {
+    const response = await this.request(`/companies?${params.toString()}`, {
       method: "GET",
-      headers,
     });
-
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(`API Error: ${response.status} ${errorBody.detail || response.statusText}`);
-    }
 
     const countHeader = response.headers.get('content-range');
     const count = countHeader ? parseInt(countHeader.split('/')[1], 10) : 0;
