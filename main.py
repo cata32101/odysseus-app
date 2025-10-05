@@ -4,51 +4,37 @@ import requests
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 from supabase import Client
 
 # Local imports
-import people
+from people import router as people_router
 from utils import get_supabase, get_current_user
-from tasks import run_vetting_task  # Import the Celery task
-from models import * # Import all models from our new models.py file
+from tasks import run_vetting_task
+from models import *
 
 load_dotenv()
 
-# --- App Initialization ---
-app = FastAPI(title="Odysseus API", version="4.0.0 (Production Stable)")
+app = FastAPI(title="Odysseus API", version="4.1.0")
 
-# --- THIS IS THE FIX for the 400 errors ---
-# Define the specific origins that are allowed to connect.
-# Using a wildcard "*" is not recommended for production.
 origins = [
-    "http://localhost:3000",  # Default Next.js dev server
+    "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:10000",
-    "https://odysseus-frontend.onrender.com"
-    # Add your deployed frontend URL here when you have one
+    "https://odysseus-frontend-v-4-3.vercel.app", # Example deployed URL
+    os.getenv("FRONTEND_URL") # More flexible for different environments
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[origin for origin in origins if origin],
     allow_credentials=True,
-    allow_methods=["*"], # Allows all methods
-    allow_headers=["*"], # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Range"],
 )
-# --- END OF FIX ---
 
-app.include_router(people.router)
-
-# --- Static Pages ---
-@app.get("/", include_in_schema=False)
-async def read_index():
-    return FileResponse("index.html")
-
-@app.get("/login", include_in_schema=False)
-async def read_login():
-    return FileResponse("login.html")
+app.include_router(people_router)
 
 @app.get("/config")
 def get_config():
@@ -57,27 +43,6 @@ def get_config():
         "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY")
     }
 
-# --- External API Functions ---
-def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
-    apollo_api_key = os.getenv("APOLLO_API_KEY")
-    if not apollo_api_key: raise HTTPException(500, "APOLLO_API_KEY not found")
-    url = "https://api.apollo.io/v1/people/search"
-    headers = {'Content-Type': 'application/json', "X-Api-Key": apollo_api_key}
-    searches = {"c_level": {"titles": ["C-Level"], "per_page": 3}, "directors": {"titles": ["Director", "Head of"], "per_page": 4}, "managers": {"titles": ["Investment Manager", "Portfolio Manager", "Partner"], "per_page": 3}}
-    all_people = {}
-    for search_params in searches.values():
-        data = {"organization_ids": [apollo_organization_id], "person_titles": search_params["titles"], "per_page": search_params["per_page"]}
-        try:
-            response = requests.post(url, headers=headers, json=data, timeout=20)
-            response.raise_for_status()
-            for person in response.json().get('people', []):
-                if person.get('id') and person['id'] not in all_people:
-                    all_people[person['id']] = person
-        except requests.exceptions.RequestException as e:
-            print(f"Error searching Apollo contacts: {e}")
-    return list(all_people.values())
-
-# --- API Endpoints ---
 @app.get("/companies", dependencies=[Depends(get_current_user)])
 def get_all_companies(
     supabase: Client = Depends(get_supabase),
@@ -104,83 +69,65 @@ def get_all_companies(
     
     query = supabase.table('companies').select('*', count='exact')
 
-    # --- Standard Filters ---
     if search:
         query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
     if status:
         query = query.in_('status', status)
     if group:
-        query = query.in_('group_name', group)
+        if "No Group" in group:
+            other_groups = [g for g in group if g != "No Group"]
+            or_conditions = ["group_name.is.null"]
+            if other_groups:
+                or_conditions.append(f"group_name.in.({','.join(other_groups)})")
+            query = query.or_(",".join(or_conditions))
+        else:
+            query = query.in_('group_name', group)
 
-    # --- Conditional Score Filtering ---
-    # This logic now ensures that even when score filters are active,
-    # companies with 'New' or 'Failed' status are still included in the results.
-    score_filters = []
-    if unified_score_min is not None:
-        score_filters.append(f'unified_score.gte.{unified_score_min}')
-    if unified_score_max is not None:
-        score_filters.append(f'unified_score.lte.{unified_score_max}')
-    if geography_score_min is not None:
-        score_filters.append(f'geography_score.gte.{geography_score_min}')
-    if geography_score_max is not None:
-        score_filters.append(f'geography_score.lte.{geography_score_max}')
-    if industry_score_min is not None:
-        score_filters.append(f'industry_score.gte.{industry_score_min}')
-    if industry_score_max is not None:
-        score_filters.append(f'industry_score.lte.{industry_score_max}')
-    if russia_score_min is not None:
-        score_filters.append(f'russia_score.gte.{russia_score_min}')
-    if russia_score_max is not None:
-        score_filters.append(f'russia_score.lte.{russia_score_max}')
-    if size_score_min is not None:
-        score_filters.append(f'size_score.gte.{size_score_min}')
-    if size_score_max is not None:
-        score_filters.append(f'size_score.lte.{size_score_max}')
+    # Simplified Score Filters - The frontend will now handle combining results
+    if unified_score_min is not None: query = query.gte('unified_score', unified_score_min)
+    if unified_score_max is not None: query = query.lte('unified_score', unified_score_max)
+    if geography_score_min is not None: query = query.gte('geography_score', geography_score_min)
+    if geography_score_max is not None: query = query.lte('geography_score', geography_score_max)
+    if industry_score_min is not None: query = query.gte('industry_score', industry_score_min)
+    if industry_score_max is not None: query = query.lte('industry_score', industry_score_max)
+    if russia_score_min is not None: query = query.gte('russia_score', russia_score_min)
+    if russia_score_max is not None: query = query.lte('russia_score', russia_score_max)
+    if size_score_min is not None: query = query.gte('size_score', size_score_min)
+    if size_score_max is not None: query = query.lte('size_score', size_score_max)
 
-    # **KEY CHANGE**: Apply score filters only to companies that should be scored.
-    # The query translates to:
-    # (status is 'New' OR status is 'Failed') OR (all score conditions are met)
-    if score_filters:
-        score_filter_string = ",".join(score_filters)
-        query = query.or_(f"status.in.(New,Failed),and({score_filter_string})")
-
-    # --- Sorting ---
-    # **KEY CHANGE**: `nullsfirst=False` ensures that companies without a score
-    # (like 'New' and 'Failed') are pushed to the bottom when sorting by score columns.
+    # Sorting with nulls last
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
 
-    # --- Pagination and Execution ---
     response = query.range(offset, offset + limit - 1).execute()
     
     count = response.count
     start = offset
     end = start + len(response.data) - 1 if response.data else start
-    content_range = f"{start}-{end}/{count}"
     
     return JSONResponse(
         content=response.data,
-        headers={
-            "Content-Range": content_range,
-            "Access-Control-Expose-Headers": "Content-Range",
-        },
+        headers={"Content-Range": f"{start}-{end}/{count}"},
     )
 
-# NEW ENDPOINT FOR EFFICIENT STATS FETCHING
 @app.get("/companies/stats", dependencies=[Depends(get_current_user)])
 def get_company_stats(supabase: Client = Depends(get_supabase)):
-    """
-    This is a new, lightweight endpoint specifically for fetching data
-    needed for the dashboard statistics. It only selects the necessary columns
-    to ensure the query is fast and does not time out.
-    """
     try:
-        # Only select columns needed for stats to keep the query fast
-        response = supabase.table('companies').select('id, status, created_at, group_name').execute()
-        return response.data
+        response = supabase.table('companies').select('id, status, created_at').execute()
+        return JSONResponse(content=response.data)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch company stats: {str(e)}")
-    
+        raise HTTPException(status_code=500, detail=f"Failed to fetch stats: {str(e)}")
 
+# --- Bulk Actions ---
+@app.post("/companies/approve-selected", dependencies=[Depends(get_current_user)])
+def approve_selected_companies(req: VetCompaniesRequest, supabase: Client = Depends(get_supabase)):
+    res = supabase.table('companies').update({'status': Status.APPROVED.value}).in_('id', req.company_ids).eq('status', 'Vetted').execute()
+    return {"message": f"Attempted to approve {len(req.company_ids)} companies. {len(res.data)} were updated."}
+
+@app.post("/companies/reject-selected", dependencies=[Depends(get_current_user)])
+def reject_selected_companies(req: VetCompaniesRequest, supabase: Client = Depends(get_supabase)):
+    res = supabase.table('companies').update({'status': Status.REJECTED.value}).in_('id', req.company_ids).eq('status', 'Vetted').execute()
+    return {"message": f"Attempted to reject {len(req.company_ids)} companies. {len(res.data)} were updated."}
+    
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
 def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supabase)):
     try:
@@ -242,16 +189,6 @@ def reject_company(company_id: int, supabase: Client = Depends(get_supabase)):
         
     return update_res.data[0]
 
-@app.post("/companies/clear-new", dependencies=[Depends(get_current_user)])
-def clear_new_companies(supabase: Client = Depends(get_supabase)):
-    delete_res = supabase.table('companies').delete().eq('status', 'New').execute()
-    return {"message": f"{len(delete_res.data)} 'New' companies cleared."}
-
-@app.post("/companies/clear-failed", dependencies=[Depends(get_current_user)])
-def clear_failed_companies(supabase: Client = Depends(get_supabase)):
-    delete_res = supabase.table('companies').delete().eq('status', 'Failed').execute()
-    return {"message": f"{len(delete_res.data)} 'Failed' companies cleared."}
-
 @app.post("/companies/delete-selected", dependencies=[Depends(get_current_user)])
 def delete_selected_companies(req: DeleteCompaniesRequest, supabase: Client = Depends(get_supabase)):
     if not req.company_ids:
@@ -274,3 +211,4 @@ def get_contacts_for_company(company_id: int, supabase: Client = Depends(get_sup
             row['company_name'] = company_name
         contacts.append(row)
     return contacts
+
