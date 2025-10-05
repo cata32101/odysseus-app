@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback, useRef } from "react"
 import type { Company, CompanyFilters, Status } from "@/lib/types"
 import { CompanyTable } from "./company-table"
 import { CompanyFiltersComponent } from "./company-filters"
@@ -50,8 +50,6 @@ export function CompaniesView({
   const { toast } = useToast()
 
   const statistics = useMemo(() => {
-    // Note: These stats are now just for the *visible* companies on the page.
-    // For full-database stats, a separate API endpoint would be needed.
     return {
       total: totalCompanies,
       new: companies.filter((c) => c.status === "New").length,
@@ -60,7 +58,6 @@ export function CompaniesView({
       vetted: companies.filter((c) => c.status === "Vetted").length,
     }
   }, [companies, totalCompanies])
-
 
   const handleVetCompanies = async (companyIds: number[]) => {
     try {
@@ -71,7 +68,6 @@ export function CompaniesView({
       })
       onRefresh()
     } catch (error) {
-      console.error("Failed to vet companies:", error)
       toast({
         title: "Error",
         description: "Failed to start vetting process.",
@@ -90,7 +86,6 @@ export function CompaniesView({
       setSelectedCompany(null)
       onRefresh()
     } catch (error) {
-      console.error("Failed to approve company:", error)
       toast({
         title: "Error",
         description: "Failed to approve company.",
@@ -109,7 +104,6 @@ export function CompaniesView({
       setSelectedCompany(null)
       onRefresh()
     } catch (error) {
-      console.error("Failed to reject company:", error)
       toast({
         title: "Error",
         description: "Failed to reject company.",
@@ -117,7 +111,7 @@ export function CompaniesView({
       })
     }
   }
-  
+
   const vettingCompanies = companies.filter((c) => c.status === "Vetting")
   const newCompanies = companies.filter((c) => c.status === "New")
 
@@ -130,67 +124,22 @@ export function CompaniesView({
             Showing {companies.length} of {totalCompanies} companies
           </p>
         </div>
-        <div className="flex items-center gap-2">
-           <Button onClick={() => setShowAddDialog(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Add Companies
-          </Button>
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
-           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-md transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-3xl font-bold text-blue-700">{statistics.total}</div>
-                  <div className="text-sm font-medium text-blue-600">Total Companies</div>
-                </div>
-                <Users className="h-10 w-10 text-blue-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200 hover:shadow-md transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-3xl font-bold text-amber-700">{statistics.new + statistics.vetting}</div>
-                  <div className="text-sm font-medium text-amber-600">Pending Review</div>
-                </div>
-                <Clock className="h-10 w-10 text-amber-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200 hover:shadow-md transition-shadow">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-3xl font-bold text-emerald-700">{statistics.approved}</div>
-                  <div className="text-sm font-medium text-emerald-600">Approved</div>
-                </div>
-                 <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center">
-                  <div className="h-5 w-5 rounded-full bg-white"></div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-        <div className="lg:col-span-1">
-            <VettingWorkflow
-                vettingCompanies={vettingCompanies}
-                newCompanies={newCompanies}
-                onVetCompanies={handleVetCompanies}
-            />
-        </div>
+        <Button onClick={() => setShowAddDialog(true)} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Add Companies
+        </Button>
       </div>
 
-      <CompanyFiltersComponent 
-        filters={filters} 
-        onFiltersChange={onFiltersChange} 
-        companies={companies} 
+      <VettingWorkflow
+        vettingCompanies={vettingCompanies}
+        newCompanies={newCompanies}
+        onVetCompanies={handleVetCompanies}
+      />
+
+      <CompanyFiltersComponent
+        filters={filters}
+        onFiltersChange={onFiltersChange}
+        companies={companies}
       />
 
       <CompanyTable

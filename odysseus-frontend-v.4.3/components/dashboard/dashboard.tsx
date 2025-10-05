@@ -75,7 +75,12 @@ export function Dashboard() {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
     } else {
       setSortBy(field);
-      setSortDir('asc');
+      // Default to descending for scores, and ascending for everything else
+      if (field.includes('_score')) {
+        setSortDir('desc');
+      } else {
+        setSortDir('asc');
+      }
     }
   };
 
