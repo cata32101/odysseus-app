@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
 interface CompaniesViewProps {
+  allCompaniesForStats: Company[];
   companies: Company[];
   loading: boolean;
   onRefresh: () => void;
@@ -30,6 +31,7 @@ interface CompaniesViewProps {
 }
 
 export function CompaniesView({
+  allCompaniesForStats,
   companies,
   loading,
   onRefresh,
@@ -56,7 +58,7 @@ export function CompaniesView({
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-    const companiesThisWeek = companies.filter((c) => {
+    const companiesThisWeek = allCompaniesForStats.filter((c: Company) => {
       if (!c.created_at) return false;
       try {
         const createdDate = new Date(c.created_at);
@@ -65,19 +67,20 @@ export function CompaniesView({
         return false;
       }
     }).length;
-
-    const weeklyGrowth = totalCompanies > 0 ? (companiesThisWeek / (totalCompanies - companiesThisWeek)) * 100 : 0;
+    
+    const total = allCompaniesForStats.length;
+    const weeklyGrowth = total > 0 && (total - companiesThisWeek > 0) ? (companiesThisWeek / (total - companiesThisWeek)) * 100 : 0;
 
     return {
-      total: totalCompanies,
-      new: companies.filter((c) => c.status === "New").length,
-      vetting: companies.filter((c) => c.status === "Vetting").length,
-      approved: companies.filter((c) => c.status === "Approved").length,
-      vetted: companies.filter((c) => c.status === "Vetted").length,
+      total: total,
+      new: allCompaniesForStats.filter((c) => c.status === "New").length,
+      vetting: allCompaniesForStats.filter((c) => c.status === "Vetting").length,
+      approved: allCompaniesForStats.filter((c) => c.status === "Approved").length,
+      vetted: allCompaniesForStats.filter((c) => c.status === "Vetted").length,
       weeklyGrowth: isNaN(weeklyGrowth) ? 0 : weeklyGrowth,
       companiesThisWeek,
     };
-  }, [companies, totalCompanies]);
+  }, [allCompaniesForStats]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.target instanceof HTMLElement && e.target.closest("[data-company-row]")) {
@@ -145,7 +148,8 @@ export function CompaniesView({
     }
   };
     const handleVetAllNew = async () => {
-    const newCompanyIds = companies.filter((c) => c.status === "New").map((c) => c.id)
+    // FIX: Use the full list to find all "New" companies
+    const newCompanyIds = allCompaniesForStats.filter((c) => c.status === "New").map((c) => c.id)
     if (newCompanyIds.length === 0) return
 
     try {
@@ -204,8 +208,8 @@ export function CompaniesView({
     }
   };
 
-  const vettingCompanies = companies.filter((c) => c.status === "Vetting");
-  const newCompanies = companies.filter((c) => c.status === "New");
+  const vettingCompanies = allCompaniesForStats.filter((c) => c.status === "Vetting");
+  const newCompanies = allCompaniesForStats.filter((c) => c.status === "New");
 
   return (
     <div className="p-6 space-y-6">
@@ -289,7 +293,13 @@ export function CompaniesView({
         </div>
       </div>
 
-      <CompanyFiltersComponent filters={filters} onFiltersChange={onFiltersChange} companies={companies} />
+      {/* FIX: Add the missing 'companies' prop to this component call */}
+      <CompanyFiltersComponent 
+        filters={filters} 
+        onFiltersChange={onFiltersChange} 
+        companies={companies}
+        allCompanies={allCompaniesForStats}
+      />
 
       <div
         ref={tableRef}

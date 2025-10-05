@@ -11,18 +11,26 @@ import { Slider } from "@/components/ui/slider"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { X, Search, ChevronDown, Filter } from "lucide-react"
 
+// FIX: This interface was missing the allCompanies prop.
 interface CompanyFiltersProps {
-  filters: CompanyFilters // Use the imported type here
-  onFiltersChange: (filters: CompanyFilters) => void // And here
-  companies: Company[]
+  filters: CompanyFilters
+  onFiltersChange: (filters: CompanyFilters) => void
+  companies: Company[] // This is the filtered list, which is not what we want for generating filter options
+  allCompanies: Company[] // This is the complete list for generating filter options
 }
 
-export function CompanyFiltersComponent({ filters, onFiltersChange, companies }: CompanyFiltersProps) {
+export function CompanyFiltersComponent({
+  filters,
+  onFiltersChange,
+  allCompanies, // We use this for the groups
+}: CompanyFiltersProps) {
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [localScoreRanges, setLocalScoreRanges] = useState(filters.scoreRanges)
 
   const statuses: Status[] = ["New", "Vetting", "Vetted", "Approved", "Failed", "Rejected"]
-  const groups = [...new Set(companies.map((c) => c.group_name).filter((name): name is string => typeof name === 'string'))]
+  
+  // FIX: Use the allCompanies prop to ensure the group list is always complete
+  const groups = [...new Set(allCompanies.map((c: Company) => c.group_name).filter((name): name is string => typeof name === 'string'))]
 
   const handleStatusToggle = (status: Status) => {
     const newStatuses = filters.status.includes(status)
@@ -40,7 +48,7 @@ export function CompanyFiltersComponent({ filters, onFiltersChange, companies }:
     onFiltersChange({ ...filters, group: newGroups })
   }
 
-  const handleScoreRangeChange = (scoreType: keyof any["scoreRanges"], value: [number, number]) => {
+  const handleScoreRangeChange = (scoreType: keyof typeof filters.scoreRanges, value: [number, number]) => {
     setLocalScoreRanges({
       ...localScoreRanges,
       [scoreType]: value,
@@ -55,7 +63,6 @@ export function CompanyFiltersComponent({ filters, onFiltersChange, companies }:
   }
 
   const clearFilters = () => {
-    // Explicitly type the new object you are creating
     const defaultFilters: CompanyFilters = {
       search: "",
       status: [],
@@ -138,7 +145,7 @@ export function CompanyFiltersComponent({ filters, onFiltersChange, companies }:
                       No Group
                       {filters.group.includes("No Group") && <X className="ml-1 h-3 w-3" />}
                     </Badge>
-                    {groups.map((group) => (
+                    {groups.map((group: string) => ( // Add explicit type for group
                       <Badge
                         key={group}
                         variant={filters.group.includes(group) ? "default" : "outline"}
@@ -164,13 +171,13 @@ export function CompanyFiltersComponent({ filters, onFiltersChange, companies }:
                   {Object.entries(localScoreRanges).map(([scoreType, range]) => (
                     <div key={scoreType} className="space-y-3">
                       <Label className="capitalize">
-                        {scoreType === "unified" ? "Unified Score" : `${scoreType} Score`}
+                        {scoreType === "unified" ? "Unified Score" : `${scoreType.replace('_', ' ')} Score`}
                       </Label>
                       <div className="px-2">
                         <Slider
                           value={range}
                           onValueChange={(value) =>
-                            handleScoreRangeChange(scoreType as keyof any["scoreRanges"], value as [number, number])
+                            handleScoreRangeChange(scoreType as keyof typeof filters.scoreRanges, value as [number, number])
                           }
                           max={10}
                           min={0}

@@ -28,6 +28,7 @@ const defaultFilters: CompanyFilters = {
 };
 
 export function Dashboard() {
+  const [allCompaniesForStats, setAllCompaniesForStats] = useState<Company[]>([]);
   const [activeView, setActiveView] = useState<DashboardView>("companies")
   const [companies, setCompanies] = useState<Company[]>([])
   const [totalCompanies, setTotalCompanies] = useState(0)
@@ -67,9 +68,45 @@ export function Dashboard() {
   // Effect for loading data when filters, page, or user changes
   useEffect(() => {
     if (!user) return;
-    refreshData();
-  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir]); // Add dependencies
+    
+    const refreshData = async () => {
+      setLoading(true);
+      try {
+        // Fetch all data in parallel
+        const [companyResponse, contactsData, allCompaniesResponse] = await Promise.all([
+          apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
+          apiClient.getContacts(),
+          // This new call fetches up to 10,000 companies with no filters for stats
+          apiClient.getCompanies(1, 10000, defaultFilters, 'created_at', 'desc')
+        ]);
 
+        // Set the state for the paginated table
+        setCompanies(companyResponse.data);
+        setTotalCompanies(companyResponse.count);
+        
+        // Set the state for contacts
+        setContacts(contactsData);
+        
+        // Set the new state for all companies (for stats and filters)
+        setAllCompaniesForStats(allCompaniesResponse.data);
+
+      } catch (error) {
+        console.error("Failed to refresh data:", error);
+        toast({
+          title: "Error",
+          description: "Failed to refresh data.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    refreshData();
+  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir, toast]); // Added toast to dependency array as it's used inside
+
+
+  // THIS FUNCTION WAS MISSING. Add it right below the useEffect hook.
   const handleSortChange = (field: string) => {
     if (sortBy === field) {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
@@ -83,7 +120,7 @@ export function Dashboard() {
       }
     }
   };
-
+  
   const renderActiveView = () => {
     switch (activeView) {
       case "companies":
@@ -102,6 +139,7 @@ export function Dashboard() {
             sortBy={sortBy}
             sortDir={sortDir}
             onSortChange={handleSortChange}
+            allCompaniesForStats={allCompaniesForStats}
           />
         )
       case "contacts":
