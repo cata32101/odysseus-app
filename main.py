@@ -65,13 +65,10 @@ def get_all_companies(
     limit: int = 10,
     search: str = "",
     status: List[str] = Query(None),
-    group: List[str] = Query(None),
-    sort_by: str = 'created_at', # Add sort_by
-    sort_dir: str = 'desc'       # Add sort_dir
+    group: List[str] = Query(None)
 ):
     offset = (page - 1) * limit
-    # The PostgREST library uses `asc` or `desc` for ordering.
-    is_ascending = sort_dir.lower() == 'asc'
+    query = supabase.table('companies').select('*', count='exact').order('id', desc=True)
 
     # Start building the query
     query = supabase.table('companies').select('*', count='exact')
