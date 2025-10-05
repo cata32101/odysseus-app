@@ -58,6 +58,7 @@ def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
     return list(all_people.values())
 
 # --- API Endpoints ---
+# --- API Endpoints ---
 @app.get("/companies", dependencies=[Depends(get_current_user)])
 def get_all_companies(
     supabase: Client = Depends(get_supabase),
@@ -67,7 +68,17 @@ def get_all_companies(
     status: List[str] = Query(None),
     group: List[str] = Query(None),
     sort_by: str = 'created_at',
-    sort_dir: str = 'desc'
+    sort_dir: str = 'desc',
+    unified_score_min: Optional[float] = Query(None),
+    unified_score_max: Optional[float] = Query(None),
+    geography_score_min: Optional[int] = Query(None),
+    geography_score_max: Optional[int] = Query(None),
+    industry_score_min: Optional[int] = Query(None),
+    industry_score_max: Optional[int] = Query(None),
+    russia_score_min: Optional[int] = Query(None),
+    russia_score_max: Optional[int] = Query(None),
+    size_score_min: Optional[int] = Query(None),
+    size_score_max: Optional[int] = Query(None)
 ):
     offset = (page - 1) * limit
     is_ascending = sort_dir.lower() == 'asc'
@@ -81,8 +92,31 @@ def get_all_companies(
     if group:
         query = query.in_('group_name', group)
 
-    # Apply sorting
-    query = query.order(sort_by, desc=not is_ascending)
+    # Score range filters
+    if unified_score_min is not None:
+        query = query.gte('unified_score', unified_score_min)
+    if unified_score_max is not None:
+        query = query.lte('unified_score', unified_score_max)
+    if geography_score_min is not None:
+        query = query.gte('geography_score', geography_score_min)
+    if geography_score_max is not None:
+        query = query.lte('geography_score', geography_score_max)
+    if industry_score_min is not None:
+        query = query.gte('industry_score', industry_score_min)
+    if industry_score_max is not None:
+        query = query.lte('industry_score', industry_score_max)
+    if russia_score_min is not None:
+        query = query.gte('russia_score', russia_score_min)
+    if russia_score_max is not None:
+        query = query.lte('russia_score', russia_score_max)
+    if size_score_min is not None:
+        query = query.gte('size_score', size_score_min)
+    if size_score_max is not None:
+        query = query.lte('size_score', size_score_max)
+
+
+    # Apply sorting with nulls last
+    query = query.order(sort_by, desc=not is_ascending, nulls_first=False)
 
     response = query.range(offset, offset + limit - 1).execute()
     
