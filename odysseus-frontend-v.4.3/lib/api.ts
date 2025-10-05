@@ -1,5 +1,5 @@
 // lib/api.ts
-import type { Company, Contact, PastCampaign, PastCampaignContact } from "./types"
+import type { Company, Contact, PastCampaign, PastCampaignContact, CompanyFilters } from "./types"
 
 const API_BASE_URL =
   process.env.NODE_ENV === "development" ? "http://localhost:8000" : process.env.NEXT_PUBLIC_API_URL || ""
@@ -44,7 +44,7 @@ export class ApiClient {
  async getCompanies(
   page: number = 1,
   limit: number = 10,
-  filters: any,
+  filters: CompanyFilters,
   sortBy: string = 'created_at',
   sortDir: string = 'desc'
 ): Promise<{ data: Company[]; count: number }> {
@@ -91,11 +91,16 @@ export class ApiClient {
   });
 
   const countHeader = response.headers.get('content-range');
-  // CORRECTED PARSING LOGIC
   const count = countHeader ? parseInt(countHeader.split('/')[1], 10) : 0;
   const data = await response.json();
 
   return { data, count };
+}
+
+// New method to call the stats endpoint
+async getCompaniesForStats(): Promise<Company[]> {
+    const response = await this.request(`/companies/stats`);
+    return response.json();
 }
 
 
@@ -206,3 +211,4 @@ async getConfig(): Promise<{ supabase_url: string; supabase_anon_key: string }> 
 }
 
 export const apiClient = new ApiClient();
+

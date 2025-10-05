@@ -48,13 +48,13 @@ export function Dashboard() {
       const [companyResponse, contactsData, allCompaniesResponse] = await Promise.all([
         apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
         apiClient.getContacts(),
-        apiClient.getCompanies(1, 10000, defaultFilters, 'created_at', 'desc') 
+        apiClient.getCompaniesForStats() // Use the new lightweight endpoint
       ]);
 
       setCompanies(companyResponse.data);
       setTotalCompanies(companyResponse.count);
       setContacts(contactsData);
-      setAllCompaniesForStats(allCompaniesResponse.data);
+      setAllCompaniesForStats(allCompaniesResponse); // The stats endpoint returns the data directly
     } catch (error) {
       console.error("Failed to refresh data:", error)
       toast({
@@ -122,3 +122,4 @@ export function Dashboard() {
     </div>
   )
 }
+
