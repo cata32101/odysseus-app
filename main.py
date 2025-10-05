@@ -66,22 +66,18 @@ def get_all_companies(
     search: str = "",
     status: List[str] = Query(None),
     group: List[str] = Query(None),
-    sort_by: str = 'created_at', 
+    sort_by: str = 'created_at',
     sort_dir: str = 'desc'
 ):
     offset = (page - 1) * limit
-    
-    # Determine if the sort direction is ascending
     is_ascending = sort_dir.lower() == 'asc'
     
     query = supabase.table('companies').select('*', count='exact')
 
     if search:
         query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
-    
     if status:
         query = query.in_('status', status)
-
     if group:
         query = query.in_('group_name', group)
 
@@ -90,7 +86,15 @@ def get_all_companies(
 
     response = query.range(offset, offset + limit - 1).execute()
     
-    return response
+    # Manually create the Content-Range header
+    count = response.count
+    content_range = f"0-{limit - 1}/{count}"
+    
+    # Return a JSONResponse with the data and the custom header
+    return JSONResponse(
+        content=response.data,
+        headers={"Content-Range": content_range}
+    )
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
 def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supabase)):
