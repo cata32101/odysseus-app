@@ -3,7 +3,7 @@ import os
 import requests
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from typing import List
 from dotenv import load_dotenv
 from supabase import Client
