@@ -58,7 +58,6 @@ def search_apollo_contacts(apollo_organization_id: str) -> List[dict]:
     return list(all_people.values())
 
 # --- API Endpoints ---
-# --- API Endpoints ---
 @app.get("/companies", dependencies=[Depends(get_current_user)])
 def get_all_companies(
     supabase: Client = Depends(get_supabase),
@@ -116,7 +115,8 @@ def get_all_companies(
 
 
     # Apply sorting with nulls last
-    query = query.order(sort_by, desc=not is_ascending, nulls_first=False)
+    # FIX IS HERE: Changed nulls_first to nullsfirst
+    query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
 
     response = query.range(offset, offset + limit - 1).execute()
     
