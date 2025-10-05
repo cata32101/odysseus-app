@@ -115,7 +115,7 @@ def get_all_companies(
 
 
     # Apply sorting with nulls last
-    # FIX IS HERE: Changed nulls_first to nullsfirst
+    # THE FIX IS HERE: Changed 'nulls_first' to 'nullsfirst'
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
 
     response = query.range(offset, offset + limit - 1).execute()
@@ -129,6 +129,7 @@ def get_all_companies(
         content=response.data,
         headers={"Content-Range": content_range}
     )
+    
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
 def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supabase)):
