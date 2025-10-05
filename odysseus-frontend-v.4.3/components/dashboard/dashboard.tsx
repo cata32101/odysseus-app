@@ -83,7 +83,7 @@ export function Dashboard() {
       }
     }
   };
-  
+
   const renderActiveView = () => {
     switch (activeView) {
       case "companies":
