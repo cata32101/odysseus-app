@@ -65,10 +65,16 @@ def get_all_companies(
     limit: int = 10,
     search: str = "",
     status: List[str] = Query(None),
-    group: List[str] = Query(None)
+    group: List[str] = Query(None),
+    sort_by: str = 'created_at', # Add sort_by
+    sort_dir: str = 'desc'       # Add sort_dir
 ):
     offset = (page - 1) * limit
-    query = supabase.table('companies').select('*', count='exact').order('id', desc=True)
+    # The PostgREST library uses `asc` or `desc` for ordering.
+    is_ascending = sort_dir.lower() == 'asc'
+
+    # Start building the query
+    query = supabase.table('companies').select('*', count='exact')
 
     if search:
         query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
@@ -79,7 +85,8 @@ def get_all_companies(
     if group:
         query = query.in_('group_name', group)
 
-    response = query.range(offset, offset + limit - 1).execute()
+    # Add the sorting and pagination
+    response = query.order(sort_by, desc=not is_ascending).range(offset, offset + limit - 1).execute()
     
     return response.data
 
