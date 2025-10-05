@@ -115,20 +115,27 @@ def get_all_companies(
 
 
     # Apply sorting with nulls last
-    # THE FIX IS HERE: Changed 'nulls_first' to 'nullsfirst'
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
 
     response = query.range(offset, offset + limit - 1).execute()
     
     # Manually create the Content-Range header
     count = response.count
-    content_range = f"0-{limit - 1}/{count}"
+    # CORRECTED HEADER CALCULATION
+    start = offset
+    end = start + len(response.data) - 1 if response.data else start
+    content_range = f"{start}-{end}/{count}"
     
     # Return a JSONResponse with the data and the custom header
     return JSONResponse(
         content=response.data,
-        headers={"Content-Range": content_range}
+        headers={
+            "Content-Range": content_range,
+            # Expose the header to the browser
+            "Access-Control-Expose-Headers": "Content-Range",
+        },
     )
+
     
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
