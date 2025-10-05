@@ -164,6 +164,21 @@ def get_all_companies(
             "Access-Control-Expose-Headers": "Content-Range",
         },
     )
+
+# NEW ENDPOINT FOR EFFICIENT STATS FETCHING
+@app.get("/companies/stats", dependencies=[Depends(get_current_user)])
+def get_company_stats(supabase: Client = Depends(get_supabase)):
+    """
+    This is a new, lightweight endpoint specifically for fetching data
+    needed for the dashboard statistics. It only selects the necessary columns
+    to ensure the query is fast and does not time out.
+    """
+    try:
+        # Only select columns needed for stats to keep the query fast
+        response = supabase.table('companies').select('id, status, created_at, group_name').execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch company stats: {str(e)}")
     
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
