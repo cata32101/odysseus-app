@@ -21,7 +21,7 @@ app = FastAPI(title="Odysseus API", version="4.1.0")
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://odysseus-frontend-v-4-3.vercel.app", # Example deployed URL
+    "https://odysseus-frontend.onrender.com", # Example deployed URL
     os.getenv("FRONTEND_URL") # More flexible for different environments
 ]
 
