@@ -64,26 +64,26 @@ export class ApiClient {
   }
 
   if (filters.scoreRanges) {
-    if (filters.scoreRanges.unified) {
-      params.append("unified_score_min", String(filters.scoreRanges.unified[0]));
-      params.append("unified_score_max", String(filters.scoreRanges.unified[1]));
-    }
-    if (filters.scoreRanges.geography) {
-      params.append("geography_score_min", String(filters.scoreRanges.geography[0]));
-      params.append("geography_score_max", String(filters.scoreRanges.geography[1]));
-    }
-    if (filters.scoreRanges.industry) {
-      params.append("industry_score_min", String(filters.scoreRanges.industry[0]));
-      params.append("industry_score_max", String(filters.scoreRanges.industry[1]));
-    }
-    if (filters.scoreRanges.russia) {
-      params.append("russia_score_min", String(filters.scoreRanges.russia[0]));
-      params.append("russia_score_max", String(filters.scoreRanges.russia[1]));
-    }
-    if (filters.scoreRanges.size) {
-      params.append("size_score_min", String(filters.scoreRanges.size[0]));
-      params.append("size_score_max", String(filters.scoreRanges.size[1]));
-    }
+      if (filters.scoreRanges.unified) {
+          params.append("unified_score_min", String(filters.scoreRanges.unified[0]));
+          params.append("unified_score_max", String(filters.scoreRanges.unified[1]));
+      }
+      if (filters.scoreRanges.geography) {
+          params.append("geography_score_min", String(filters.scoreRanges.geography[0]));
+          params.append("geography_score_max", String(filters.scoreRanges.geography[1]));
+      }
+      if (filters.scoreRanges.industry) {
+          params.append("industry_score_min", String(filters.scoreRanges.industry[0]));
+          params.append("industry_score_max", String(filters.scoreRanges.industry[1]));
+      }
+      if (filters.scoreRanges.russia) {
+          params.append("russia_score_min", String(filters.scoreRanges.russia[0]));
+          params.append("russia_score_max", String(filters.scoreRanges.russia[1]));
+      }
+      if (filters.scoreRanges.size) {
+          params.append("size_score_min", String(filters.scoreRanges.size[0]));
+          params.append("size_score_max", String(filters.scoreRanges.size[1]));
+      }
   }
 
   const response = await this.request(`/companies?${params.toString()}`, {
@@ -91,11 +91,13 @@ export class ApiClient {
   });
 
   const countHeader = response.headers.get('content-range');
+  // CORRECTED PARSING LOGIC
   const count = countHeader ? parseInt(countHeader.split('/')[1], 10) : 0;
   const data = await response.json();
 
   return { data, count };
 }
+
 
 async addCompanies(domains: string[], groupName?: string): Promise<{ added_count: number; skipped_domains: string[] }> {
   const response = await this.request("/companies/add", {
