@@ -133,25 +133,20 @@ def get_all_companies(
     if size_score_max is not None:
         query = query.lte('size_score', size_score_max)
 
-
     # Apply sorting with nulls last
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
 
     response = query.range(offset, offset + limit - 1).execute()
     
-    # Manually create the Content-Range header
     count = response.count
-    # CORRECTED HEADER CALCULATION
     start = offset
     end = start + len(response.data) - 1 if response.data else start
     content_range = f"{start}-{end}/{count}"
     
-    # Return a JSONResponse with the data and the custom header
     return JSONResponse(
         content=response.data,
         headers={
             "Content-Range": content_range,
-            # Expose the header to the browser
             "Access-Control-Expose-Headers": "Content-Range",
         },
     )
