@@ -104,6 +104,7 @@ def get_all_companies(
     
     query = supabase.table('companies').select('*', count='exact')
 
+    # --- Standard Filters ---
     if search:
         query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
     if status:
@@ -111,31 +112,44 @@ def get_all_companies(
     if group:
         query = query.in_('group_name', group)
 
-    # Score range filters
+    # --- Conditional Score Filtering ---
+    # This logic now ensures that even when score filters are active,
+    # companies with 'New' or 'Failed' status are still included in the results.
+    score_filters = []
     if unified_score_min is not None:
-        query = query.gte('unified_score', unified_score_min)
+        score_filters.append(f'unified_score.gte.{unified_score_min}')
     if unified_score_max is not None:
-        query = query.lte('unified_score', unified_score_max)
+        score_filters.append(f'unified_score.lte.{unified_score_max}')
     if geography_score_min is not None:
-        query = query.gte('geography_score', geography_score_min)
+        score_filters.append(f'geography_score.gte.{geography_score_min}')
     if geography_score_max is not None:
-        query = query.lte('geography_score', geography_score_max)
+        score_filters.append(f'geography_score.lte.{geography_score_max}')
     if industry_score_min is not None:
-        query = query.gte('industry_score', industry_score_min)
+        score_filters.append(f'industry_score.gte.{industry_score_min}')
     if industry_score_max is not None:
-        query = query.lte('industry_score', industry_score_max)
+        score_filters.append(f'industry_score.lte.{industry_score_max}')
     if russia_score_min is not None:
-        query = query.gte('russia_score', russia_score_min)
+        score_filters.append(f'russia_score.gte.{russia_score_min}')
     if russia_score_max is not None:
-        query = query.lte('russia_score', russia_score_max)
+        score_filters.append(f'russia_score.lte.{russia_score_max}')
     if size_score_min is not None:
-        query = query.gte('size_score', size_score_min)
+        score_filters.append(f'size_score.gte.{size_score_min}')
     if size_score_max is not None:
-        query = query.lte('size_score', size_score_max)
+        score_filters.append(f'size_score.lte.{size_score_max}')
 
-    # Apply sorting with nulls last
+    # **KEY CHANGE**: Apply score filters only to companies that should be scored.
+    # The query translates to:
+    # (status is 'New' OR status is 'Failed') OR (all score conditions are met)
+    if score_filters:
+        score_filter_string = ",".join(score_filters)
+        query = query.or_(f"status.in.(New,Failed),and({score_filter_string})")
+
+    # --- Sorting ---
+    # **KEY CHANGE**: `nullsfirst=False` ensures that companies without a score
+    # (like 'New' and 'Failed') are pushed to the bottom when sorting by score columns.
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
 
+    # --- Pagination and Execution ---
     response = query.range(offset, offset + limit - 1).execute()
     
     count = response.count
@@ -150,7 +164,6 @@ def get_all_companies(
             "Access-Control-Expose-Headers": "Content-Range",
         },
     )
-
     
 
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
