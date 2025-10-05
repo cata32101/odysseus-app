@@ -72,7 +72,7 @@ export class ApiClient {
 
     const response = await this.request(`/companies?${params.toString()}`, {
       method: "GET",
-    });
+    }, false); // We set returnJson to false to get the full response
 
     const countHeader = response.headers.get('content-range');
     const count = countHeader ? parseInt(countHeader.split('/')[1], 10) : 0;
