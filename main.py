@@ -25,7 +25,8 @@ app = FastAPI(title="Odysseus API", version="4.0.0 (Production Stable)")
 origins = [
     "http://localhost:3000",  # Default Next.js dev server
     "http://127.0.0.1:3000",
-    "http://localhost:10000"
+    "http://localhost:10000",
+    "https://odysseus-frontend.onrender.com"
     # Add your deployed frontend URL here when you have one
 ]
 
