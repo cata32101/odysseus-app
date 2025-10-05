@@ -1,15 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/hooks/use-auth"
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
 import { CompaniesView } from "../companies/companies-view"
 import { ContactsView } from "../contacts/contacts-view"
 import { CampaignsView } from "../campaigns/campaigns-view"
-import type { Company, Contact, Status, CompanyFilters } from "@/lib/types"
+import type { Company, Contact, CompanyFilters } from "@/lib/types"
 import { apiClient } from "@/lib/api"
-import { createClient } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 
 export type DashboardView = "companies" | "contacts" | "campaigns"
@@ -35,90 +34,51 @@ export function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [filters, setFilters] = useState<CompanyFilters>(defaultFilters);
-  const [sortBy, setSortBy] = useState('created_at'); // Add sorting state
-  const [sortDir, setSortDir] = useState('desc');     // Add sorting direction
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortDir, setSortDir] = useState('desc');
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const { user } = useAuth()
   const { toast } = useToast()
-  const supabase = createClient()
 
-  const refreshData = async () => {
-      setLoading(true);
-      try {
-        const [companyResponse, contactsData] = await Promise.all([
-          apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
-          apiClient.getContacts()
-        ]);
-        setCompanies(companyResponse.data);
-        setTotalCompanies(companyResponse.count);
-        setContacts(contactsData);
-      } catch (error) {
-        console.error("Failed to refresh data:", error)
-        toast({
-          title: "Error",
-          description: "Failed to refresh data.",
-          variant: "destructive",
-        })
-      } finally {
-        setLoading(false);
-      }
-  }
-
-  // Effect for loading data when filters, page, or user changes
-  useEffect(() => {
+  const refreshData = useCallback(async () => {
     if (!user) return;
-    
-    const refreshData = async () => {
-      setLoading(true);
-      try {
-        // Fetch all data in parallel
-        const [companyResponse, contactsData, allCompaniesResponse] = await Promise.all([
-          apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
-          apiClient.getContacts(),
-          // This new call fetches up to 10,000 companies with no filters for stats
-          apiClient.getCompanies(1, 10000, defaultFilters, 'created_at', 'desc')
-        ]);
+    setLoading(true);
+    try {
+      const [companyResponse, contactsData, allCompaniesResponse] = await Promise.all([
+        apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
+        apiClient.getContacts(),
+        apiClient.getCompanies(1, 10000, defaultFilters, 'created_at', 'desc') 
+      ]);
 
-        // Set the state for the paginated table
-        setCompanies(companyResponse.data);
-        setTotalCompanies(companyResponse.count);
-        
-        // Set the state for contacts
-        setContacts(contactsData);
-        
-        // Set the new state for all companies (for stats and filters)
-        setAllCompaniesForStats(allCompaniesResponse.data);
+      setCompanies(companyResponse.data);
+      setTotalCompanies(companyResponse.count);
+      setContacts(contactsData);
+      setAllCompaniesForStats(allCompaniesResponse.data);
+    } catch (error) {
+      console.error("Failed to refresh data:", error)
+      toast({
+        title: "Error fetching data",
+        description: "Could not load data from the server. Please check your connection and try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false);
+    }
+  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir, toast]);
 
-      } catch (error) {
-        console.error("Failed to refresh data:", error);
-        toast({
-          title: "Error",
-          description: "Failed to refresh data.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
+  useEffect(() => {
     refreshData();
-  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir, toast]); // Added toast to dependency array as it's used inside
+  }, [refreshData]);
 
-
-  // THIS FUNCTION WAS MISSING. Add it right below the useEffect hook.
   const handleSortChange = (field: string) => {
     if (sortBy === field) {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
     } else {
       setSortBy(field);
-      // Default to DESC for scores, and ASC for everything else
-      if (field.includes('_score')) {
-        setSortDir('desc');
-      } else {
-        setSortDir('asc');
-      }
+      setSortDir(field.includes('_score') ? 'desc' : 'asc');
     }
+    setCurrentPage(1); // Reset to first page on sort change
   };
   
   const renderActiveView = () => {
@@ -143,7 +103,8 @@ export function Dashboard() {
           />
         )
       case "contacts":
-        return <ContactsView contacts={contacts} companies={companies} loading={loading} onRefresh={refreshData} />
+        // Pass the full list of companies to the contacts view for filtering context
+        return <ContactsView contacts={contacts} companies={allCompaniesForStats} loading={loading} onRefresh={refreshData} />
       case "campaigns":
         return <CampaignsView contacts={contacts} loading={loading} onRefresh={refreshData} />
       default:
