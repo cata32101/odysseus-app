@@ -18,7 +18,26 @@ load_dotenv()
 
 # --- App Initialization ---
 app = FastAPI(title="Odysseus API", version="4.0.0 (Production Stable)")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:10000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# --- THIS IS THE FIX for the 400 errors ---
+# Define the specific origins that are allowed to connect.
+# Using a wildcard "*" is not recommended for production.
+origins = [
+    "http://localhost:3000",  # Default Next.js dev server
+    "http://127.0.0.1:3000",
+    "http://localhost:10000"
+    # Add your deployed frontend URL here when you have one
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Allows all methods
+    allow_headers=["*"], # Allows all headers
+)
+# --- END OF FIX ---
+
 app.include_router(people.router)
 
 # --- Static Pages ---
