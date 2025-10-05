@@ -18,7 +18,7 @@ load_dotenv()
 
 # --- App Initialization ---
 app = FastAPI(title="Odysseus API", version="4.0.0 (Production Stable)")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:10000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(people.router)
 
 # --- Static Pages ---
