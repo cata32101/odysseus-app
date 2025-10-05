@@ -11,25 +11,22 @@ import { Slider } from "@/components/ui/slider"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { X, Search, ChevronDown, Filter } from "lucide-react"
 
-// FIX: This interface was missing the allCompanies prop.
 interface CompanyFiltersProps {
   filters: CompanyFilters
   onFiltersChange: (filters: CompanyFilters) => void
-  companies: Company[] // This is the filtered list, which is not what we want for generating filter options
-  allCompanies: Company[] // This is the complete list for generating filter options
+  companies: Company[]
+  allCompanies: Company[]
 }
 
 export function CompanyFiltersComponent({
   filters,
   onFiltersChange,
-  allCompanies, // We use this for the groups
+  allCompanies, 
 }: CompanyFiltersProps) {
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
   const [localScoreRanges, setLocalScoreRanges] = useState(filters.scoreRanges)
 
   const statuses: Status[] = ["New", "Vetting", "Vetted", "Approved", "Failed", "Rejected"]
-  
-  // FIX: Use the allCompanies prop to ensure the group list is always complete
   const groups = [...new Set(allCompanies.map((c: Company) => c.group_name).filter((name): name is string => typeof name === 'string'))]
 
   const handleStatusToggle = (status: Status) => {
@@ -114,7 +111,6 @@ export function CompanyFiltersComponent({
               </Button>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Status Filter */}
               <div className="space-y-2">
                 <Label>Status</Label>
                 <div className="flex flex-wrap gap-2">
@@ -132,7 +128,6 @@ export function CompanyFiltersComponent({
                 </div>
               </div>
 
-              {/* Group Filter */}
               {groups.length > 0 && (
                 <div className="space-y-2">
                   <Label>Groups</Label>
@@ -145,7 +140,7 @@ export function CompanyFiltersComponent({
                       No Group
                       {filters.group.includes("No Group") && <X className="ml-1 h-3 w-3" />}
                     </Badge>
-                    {groups.map((group: string) => ( // Add explicit type for group
+                    {groups.map((group: string) => (
                       <Badge
                         key={group}
                         variant={filters.group.includes(group) ? "default" : "outline"}
