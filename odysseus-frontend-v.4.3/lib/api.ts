@@ -46,17 +46,21 @@ export class ApiClient {
   }
 
   // --- Company endpoints ---
-async getCompanies(
+  async getCompanies(
     page: number = 1,
     limit: number = 10,
-    filters: any
+    filters: any,
+    sortBy: string = 'created_at', // Add sortBy
+    sortDir: string = 'desc'       // Add sortDir
   ): Promise<{ data: Company[]; count: number }> {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
       search: filters.search || "",
+      sort_by: sortBy,
+      sort_dir: sortDir,
     });
-
+    
     if (filters.status) {
       filters.status.forEach((s: string) => params.append("status", s));
     }

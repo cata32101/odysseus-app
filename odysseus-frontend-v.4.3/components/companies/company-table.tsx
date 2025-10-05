@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import type { Company, Status } from "@/lib/types"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
@@ -23,22 +22,6 @@ import {
 } from "@/components/ui/pagination"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-interface CompanyTableProps {
-  companies: Company[]
-  loading: boolean
-  selectedCompanies: number[]
-  onSelectedCompaniesChange: (ids: number[]) => void
-  onCompanyClick: (company: Company) => void
-  onRefresh: () => void
-  // Props for pagination
-  currentPage: number
-  totalPages: number
-  onPageChange: (page: number) => void
-  itemsPerPage: number
-  onItemsPerPageChange: (value: number) => void
-  totalResults: number
-}
-
 type SortField =
   | "name"
   | "domain"
@@ -49,7 +32,25 @@ type SortField =
   | "russia_score"
   | "size_score"
   | "created_at"
-type SortDirection = "asc" | "desc"
+
+interface CompanyTableProps {
+  companies: Company[]
+  loading: boolean
+  selectedCompanies: number[]
+  onSelectedCompaniesChange: (ids: number[]) => void
+  onCompanyClick: (company: Company) => void
+  onRefresh: () => void
+  currentPage: number
+  totalPages: number
+  onPageChange: (page: number) => void
+  itemsPerPage: number
+  onItemsPerPageChange: (value: number) => void
+  totalResults: number
+  sortBy: string
+  sortDir: string
+  onSortChange: (field: SortField) => void
+}
+
 
 const statusColors: Record<Status, string> = {
   New: "bg-blue-100 text-blue-800 border-blue-200",
@@ -73,41 +74,11 @@ export function CompanyTable({
   itemsPerPage,
   onItemsPerPageChange,
   totalResults,
+  sortBy,
+  sortDir,
+  onSortChange,
 }: CompanyTableProps) {
-  const [sortField, setSortField] = useState<SortField>("created_at")
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
   const { toast } = useToast()
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
-    } else {
-      setSortField(field)
-      setSortDirection("asc")
-    }
-  }
-
-  const sortedCompanies = [...companies].sort((a, b) => {
-    let aValue: any = a[sortField]
-    let bValue: any = b[sortField]
-
-    if (sortField === "name") {
-      aValue = a.name || a.domain
-      bValue = b.name || b.domain
-    }
-
-    if (aValue === null || aValue === undefined) aValue = ""
-    if (bValue === null || bValue === undefined) bValue = ""
-
-    if (typeof aValue === "string") {
-      aValue = aValue.toLowerCase()
-      bValue = bValue.toLowerCase()
-    }
-
-    if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
-    if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
-    return 0
-  })
 
   const handleSelectAll = (checked: boolean) => {
     onSelectedCompaniesChange(checked ? companies.map((c) => c.id) : [])
@@ -117,48 +88,6 @@ export function CompanyTable({
     onSelectedCompaniesChange(
       checked ? [...selectedCompanies, companyId] : selectedCompanies.filter((id) => id !== companyId),
     )
-  }
-
-  const handleBulkApprove = async () => {
-    if (selectedCompanies.length === 0) return
-
-    try {
-      await Promise.all(selectedCompanies.map((id) => apiClient.approveCompany(id)))
-      toast({
-        title: "Companies Approved",
-        description: `Approved ${selectedCompanies.length} companies.`,
-      })
-      onSelectedCompaniesChange([])
-      onRefresh()
-    } catch (error) {
-      console.error("Failed to approve companies:", error)
-      toast({
-        title: "Error",
-        description: "Failed to approve companies.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleBulkReject = async () => {
-    if (selectedCompanies.length === 0) return
-
-    try {
-      await Promise.all(selectedCompanies.map((id) => apiClient.rejectCompany(id)))
-      toast({
-        title: "Companies Rejected",
-        description: `Rejected ${selectedCompanies.length} companies.`,
-      })
-      onSelectedCompaniesChange([])
-      onRefresh()
-    } catch (error) {
-      console.error("Failed to reject companies:", error)
-      toast({
-        title: "Error",
-        description: "Failed to reject companies.",
-        variant: "destructive",
-      })
-    }
   }
 
   const handleDeleteSelected = async () => {
@@ -182,32 +111,32 @@ export function CompanyTable({
     }
   }
 
-  const renderPaginationItems = () => {
-    if (totalPages <= 1) return null
-    const pageNumbers = []
-    const visiblePages = 2
+    const renderPaginationItems = () => {
+    if (totalPages <= 1) return null;
+    const pageNumbers = [];
+    const visiblePages = 2;
 
-    pageNumbers.push(1)
+    pageNumbers.push(1);
 
     if (currentPage > visiblePages + 2) {
-      pageNumbers.push("...")
+      pageNumbers.push("...");
     }
 
-    const startPage = Math.max(2, currentPage - visiblePages)
-    const endPage = Math.min(totalPages - 1, currentPage + visiblePages)
+    const startPage = Math.max(2, currentPage - visiblePages);
+    const endPage = Math.min(totalPages - 1, currentPage + visiblePages);
     for (let i = startPage; i <= endPage; i++) {
-      pageNumbers.push(i)
+      pageNumbers.push(i);
     }
 
     if (currentPage < totalPages - visiblePages - 1) {
-      pageNumbers.push("...")
+      pageNumbers.push("...");
     }
 
     if (totalPages > 1) {
-      pageNumbers.push(totalPages)
+      pageNumbers.push(totalPages);
     }
 
-    const uniquePageNumbers = [...new Set(pageNumbers)]
+    const uniquePageNumbers = [...new Set(pageNumbers)];
 
     return uniquePageNumbers.map((page, index) => (
       <PaginationItem key={`${page}-${index}`}>
@@ -217,8 +146,8 @@ export function CompanyTable({
           <PaginationLink
             href="#"
             onClick={(e) => {
-              e.preventDefault()
-              onPageChange(page as number)
+              e.preventDefault();
+              onPageChange(page as number);
             }}
             isActive={currentPage === page}
           >
@@ -226,8 +155,9 @@ export function CompanyTable({
           </PaginationLink>
         )}
       </PaginationItem>
-    ))
-  }
+    ));
+  };
+
 
   if (loading) {
     return (
@@ -253,20 +183,10 @@ export function CompanyTable({
         {selectedCompanies.length > 0 && (
           <div className="flex items-center gap-2 mb-4 p-3 bg-muted rounded-md">
             <span className="text-sm font-medium">{selectedCompanies.length} selected</span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleBulkApprove} className="gap-2 bg-transparent">
-                <CheckCircle className="h-4 w-4" />
-                Approve
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleBulkReject} className="gap-2 bg-transparent">
-                <XCircle className="h-4 w-4" />
-                Reject
-              </Button>
-              <Button variant="destructive" size="sm" onClick={handleDeleteSelected} className="gap-2">
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
-            </div>
+            <Button variant="destructive" size="sm" onClick={handleDeleteSelected} className="gap-2">
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </Button>
           </div>
         )}
 
@@ -280,13 +200,13 @@ export function CompanyTable({
                 />
               </TableHead>
               <TableHead>
-                <Button variant="ghost" onClick={() => handleSort("name")} className="gap-2 p-0 h-auto font-medium">
+                <Button variant="ghost" onClick={() => onSortChange("name")} className="gap-2 p-0 h-auto font-medium">
                   Company
                   <ArrowUpDown className="h-4 w-4" />
                 </Button>
               </TableHead>
               <TableHead>
-                <Button variant="ghost" onClick={() => handleSort("status")} className="gap-2 p-0 h-auto font-medium">
+                <Button variant="ghost" onClick={() => onSortChange("status")} className="gap-2 p-0 h-auto font-medium">
                   Status
                   <ArrowUpDown className="h-4 w-4" />
                 </Button>
@@ -294,7 +214,7 @@ export function CompanyTable({
               <TableHead>
                 <Button
                   variant="ghost"
-                  onClick={() => handleSort("unified_score")}
+                  onClick={() => onSortChange("unified_score")}
                   className="gap-2 p-0 h-auto font-medium"
                 >
                   Unified
@@ -304,7 +224,7 @@ export function CompanyTable({
               <TableHead>
                 <Button
                   variant="ghost"
-                  onClick={() => handleSort("geography_score")}
+                  onClick={() => onSortChange("geography_score")}
                   className="gap-2 p-0 h-auto font-medium"
                 >
                   Geo
@@ -314,7 +234,7 @@ export function CompanyTable({
               <TableHead>
                 <Button
                   variant="ghost"
-                  onClick={() => handleSort("industry_score")}
+                  onClick={() => onSortChange("industry_score")}
                   className="gap-2 p-0 h-auto font-medium"
                 >
                   Industry
@@ -324,7 +244,7 @@ export function CompanyTable({
               <TableHead>
                 <Button
                   variant="ghost"
-                  onClick={() => handleSort("russia_score")}
+                  onClick={() => onSortChange("russia_score")}
                   className="gap-2 p-0 h-auto font-medium"
                 >
                   Russia
@@ -334,7 +254,7 @@ export function CompanyTable({
               <TableHead>
                 <Button
                   variant="ghost"
-                  onClick={() => handleSort("size_score")}
+                  onClick={() => onSortChange("size_score")}
                   className="gap-2 p-0 h-auto font-medium"
                 >
                   Size
@@ -344,7 +264,7 @@ export function CompanyTable({
               <TableHead>
                 <Button
                   variant="ghost"
-                  onClick={() => handleSort("created_at")}
+                  onClick={() => onSortChange("created_at")}
                   className="gap-2 p-0 h-auto font-medium"
                 >
                   Added
@@ -356,7 +276,7 @@ export function CompanyTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedCompanies.map((company) => (
+            {companies.map((company) => (
               <TableRow
                 key={company.id}
                 data-company-row
@@ -382,35 +302,35 @@ export function CompanyTable({
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  {company.unified_score !== undefined && company.unified_score !== null ? (
+                  {company.unified_score != null ? (
                     <div className="font-medium">{company.unified_score.toFixed(1)}</div>
                   ) : (
                     <span className="text-muted-foreground">-</span>
                   )}
                 </TableCell>
                 <TableCell>
-                  {company.geography_score !== undefined && company.geography_score !== null ? (
+                  {company.geography_score != null ? (
                     <div className="font-medium">{company.geography_score.toFixed(1)}</div>
                   ) : (
                     <span className="text-muted-foreground">-</span>
                   )}
                 </TableCell>
                 <TableCell>
-                  {company.industry_score !== undefined && company.industry_score !== null ? (
+                  {company.industry_score != null ? (
                     <div className="font-medium">{company.industry_score.toFixed(1)}</div>
                   ) : (
                     <span className="text-muted-foreground">-</span>
                   )}
                 </TableCell>
                 <TableCell>
-                  {company.russia_score !== undefined && company.russia_score !== null ? (
+                  {company.russia_score != null ? (
                     <div className="font-medium">{company.russia_score.toFixed(1)}</div>
                   ) : (
                     <span className="text-muted-foreground">-</span>
                   )}
                 </TableCell>
                 <TableCell>
-                  {company.size_score !== undefined && company.size_score !== null ? (
+                  {company.size_score != null ? (
                     <div className="font-medium">{company.size_score.toFixed(1)}</div>
                   ) : (
                     <span className="text-muted-foreground">-</span>
@@ -418,20 +338,11 @@ export function CompanyTable({
                 </TableCell>
                 <TableCell>
                   <div className="text-sm text-muted-foreground">
-                    {(() => {
-                      if (!company.created_at) return "N/A"
-                      try {
-                        const date = new Date(company.created_at)
-                        if (isNaN(date.getTime())) throw new Error("Invalid Date")
-                        return date.toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })
-                      } catch (error) {
-                        return "Invalid Date"
-                      }
-                    })()}
+                    {company.created_at ? new Date(company.created_at).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    }) : "N/A"}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -453,18 +364,6 @@ export function CompanyTable({
                         <FolderOpen className="mr-2 h-4 w-4" />
                         View Details
                       </DropdownMenuItem>
-                      {company.status === "Vetted" && (
-                        <>
-                          <DropdownMenuItem onClick={() => handleBulkApprove()}>
-                            <CheckCircle className="mr-2 h-4 w-4" />
-                            Approve & Source
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleBulkReject()}>
-                            <XCircle className="mr-2 h-4 w-4" />
-                            Reject
-                          </DropdownMenuItem>
-                        </>
-                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -512,8 +411,8 @@ export function CompanyTable({
                     <PaginationPrevious
                       href="#"
                       onClick={(e) => {
-                        e.preventDefault()
-                        if (currentPage > 1) onPageChange(currentPage - 1)
+                        e.preventDefault();
+                        if (currentPage > 1) onPageChange(currentPage - 1);
                       }}
                       className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
                     />
@@ -523,8 +422,8 @@ export function CompanyTable({
                     <PaginationNext
                       href="#"
                       onClick={(e) => {
-                        e.preventDefault()
-                        if (currentPage < totalPages) onPageChange(currentPage + 1)
+                        e.preventDefault();
+                        if (currentPage < totalPages) onPageChange(currentPage + 1);
                       }}
                       className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
                     />

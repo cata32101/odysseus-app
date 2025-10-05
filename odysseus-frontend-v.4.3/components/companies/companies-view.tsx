@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useRef, useCallback, useMemo, useEffect } from "react"
-import type { Company, Status } from "@/lib/types"
+import { useState, useMemo } from "react"
+import type { Company, CompanyFilters, Status } from "@/lib/types"
 import { CompanyTable } from "./company-table"
 import { CompanyFiltersComponent } from "./company-filters"
 import { AddCompaniesDialog } from "./add-companies-dialog"
@@ -17,7 +17,6 @@ interface CompaniesViewProps {
   companies: Company[];
   loading: boolean;
   onRefresh: () => void;
-  // --- ADD THESE NEW PROPS ---
   totalCompanies: number;
   currentPage: number;
   itemsPerPage: number;
@@ -25,180 +24,43 @@ interface CompaniesViewProps {
   onItemsPerPageChange: (limit: number) => void;
   filters: CompanyFilters;
   onFiltersChange: (filters: CompanyFilters) => void;
-  // --- END OF NEW PROPS ---
+  sortBy: string;
+  sortDir: string;
+  onSortChange: (field: any) => void;
 }
 
-interface CompanyFilters {
-  search: string;
-  status: Status[];
-  group: string[];
-  scoreRanges: {
-    unified: [number, number];
-    geography: [number, number];
-    industry: [number, number];
-    russia: [number, number];
-    size: [number, number];
-  };
-}
-
-const defaultFilters: CompanyFilters = {
-  search: "",
-  status: [],
-  group: [],
-  scoreRanges: {
-    unified: [0, 10],
-    geography: [0, 10],
-    industry: [0, 10],
-    russia: [0, 10],
-    size: [0, 10],
-  },
-}
-
-
-export function CompaniesView({ companies, loading, onRefresh }: CompaniesViewProps) {
-  const [filters, setFilters] = useState<CompanyFilters>(defaultFilters)
+export function CompaniesView({
+  companies,
+  loading,
+  onRefresh,
+  totalCompanies,
+  currentPage,
+  itemsPerPage,
+  onPageChange,
+  onItemsPerPageChange,
+  filters,
+  onFiltersChange,
+  sortBy,
+  sortDir,
+  onSortChange,
+}: CompaniesViewProps) {
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [selectedCompanies, setSelectedCompanies] = useState<number[]>([])
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
-  const tableRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage, setItemsPerPage] = useState(10)
-
   const statistics = useMemo(() => {
-    const stats = {
-      total: companies.length,
+    // Note: These stats are now just for the *visible* companies on the page.
+    // For full-database stats, a separate API endpoint would be needed.
+    return {
+      total: totalCompanies,
       new: companies.filter((c) => c.status === "New").length,
       vetting: companies.filter((c) => c.status === "Vetting").length,
-      vetted: companies.filter((c) => c.status === "Vetted").length,
       approved: companies.filter((c) => c.status === "Approved").length,
-      rejected: companies.filter((c) => c.status === "Rejected").length,
-      failed: companies.filter((c) => c.status === "Failed").length,
+      vetted: companies.filter((c) => c.status === "Vetted").length,
     }
+  }, [companies, totalCompanies])
 
-    const oneWeekAgo = new Date()
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
-
-    const companiesThisWeek = companies.filter((c) => {
-      if (!c.created_at) return false
-      try {
-        const createdDate = new Date(c.created_at)
-        return createdDate >= oneWeekAgo
-      } catch {
-        return false
-      }
-    }).length
-
-    const weeklyGrowth = stats.total > 0 ? (companiesThisWeek / (stats.total - companiesThisWeek)) * 100 : 0
-
-    return { ...stats, weeklyGrowth: isNaN(weeklyGrowth) ? 0 : weeklyGrowth, companiesThisWeek }
-  }, [companies])
-
-  const filteredCompanies = useMemo(() => {
-    return companies.filter((company) => {
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase()
-        const matchesSearch =
-          company.name?.toLowerCase().includes(searchLower) || company.domain.toLowerCase().includes(searchLower)
-        if (!matchesSearch) return false
-      }
-
-      if (filters.status.length > 0 && !filters.status.includes(company.status)) {
-        return false
-      }
-
-      if (filters.group.length > 0) {
-        if (!company.group_name && !filters.group.includes("No Group")) {
-          return false
-        }
-        if (company.group_name && !filters.group.includes(company.group_name)) {
-          return false
-        }
-      }
-
-      if (company.unified_score !== undefined) {
-        const [min, max] = filters.scoreRanges.unified
-        if (company.unified_score < min || company.unified_score > max) return false
-      }
-
-      if (company.geography_score !== undefined) {
-        const [min, max] = filters.scoreRanges.geography
-        if (company.geography_score < min || company.geography_score > max) return false
-      }
-
-      if (company.industry_score !== undefined) {
-        const [min, max] = filters.scoreRanges.industry
-        if (company.industry_score < min || company.industry_score > max) return false
-      }
-
-      if (company.russia_score !== undefined) {
-        const [min, max] = filters.scoreRanges.russia
-        if (company.russia_score < min || company.russia_score > max) return false
-      }
-
-      if (company.size_score !== undefined) {
-        const [min, max] = filters.scoreRanges.size
-        if (company.size_score < min || company.size_score > max) return false
-      }
-
-      return true
-    })
-  }, [companies, filters])
-
-  const paginatedCompanies = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage
-    return filteredCompanies.slice(startIndex, startIndex + itemsPerPage)
-  }, [filteredCompanies, currentPage, itemsPerPage])
-
-  const totalPages = Math.ceil(filteredCompanies.length / itemsPerPage)
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [filters, itemsPerPage])
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.target instanceof HTMLElement && e.target.closest("[data-company-row]")) {
-      setIsDragging(true)
-      setDragStart({ x: e.clientX, y: e.clientY })
-    }
-  }, [])
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isDragging || !dragStart) return
-
-      const threshold = 5
-      const distance = Math.sqrt(Math.pow(e.clientX - dragStart.x, 2) + Math.pow(e.clientY - dragStart.y, 2))
-
-      if (distance > threshold) {
-        const rows = document.querySelectorAll("[data-company-row]")
-        const newSelected: number[] = []
-
-        rows.forEach((row) => {
-          const rect = row.getBoundingClientRect()
-          const mouseY = e.clientY
-
-          if (mouseY >= Math.min(dragStart.y, rect.top) && mouseY <= Math.max(dragStart.y, rect.bottom)) {
-            const companyId = Number.parseInt(row.getAttribute("data-company-id") || "0")
-            if (companyId) newSelected.push(companyId)
-          }
-        })
-
-        if (JSON.stringify(newSelected) !== JSON.stringify(selectedCompanies)) {
-          setSelectedCompanies(newSelected)
-        }
-      }
-    },
-    [isDragging, dragStart, selectedCompanies],
-  )
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false)
-    setDragStart(null)
-  }, [])
 
   const handleVetCompanies = async (companyIds: number[]) => {
     try {
@@ -255,59 +117,30 @@ export function CompaniesView({ companies, loading, onRefresh }: CompaniesViewPr
       })
     }
   }
-
-  const handleVetAllNew = async () => {
-    const newCompanyIds = companies.filter((c) => c.status === "New").map((c) => c.id)
-    if (newCompanyIds.length === 0) return
-
-    try {
-      await apiClient.vetCompanies(newCompanyIds)
-      toast({
-        title: "Vetting Started",
-        description: `Started vetting process for ${newCompanyIds.length} new companies.`,
-      })
-      onRefresh()
-    } catch (error) {
-      console.error("Failed to vet all new companies:", error)
-      toast({
-        title: "Error",
-        description: "Failed to start vetting process for new companies.",
-        variant: "destructive",
-      })
-    }
-  }
-
+  
   const vettingCompanies = companies.filter((c) => c.status === "Vetting")
   const newCompanies = companies.filter((c) => c.status === "New")
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between">
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-2xl font-bold">Company Intelligence</h3>
-            <p className="text-muted-foreground">
-              Showing {paginatedCompanies.length} of {filteredCompanies.length} companies
-            </p>
-          </div>
+        <div>
+          <h3 className="text-2xl font-bold">Company Intelligence</h3>
+          <p className="text-muted-foreground">
+            Showing {companies.length} of {totalCompanies} companies
+          </p>
         </div>
-
         <div className="flex items-center gap-2">
-          {statistics.new > 0 && (
-            <Button onClick={handleVetAllNew} variant="outline" className="gap-2 bg-transparent">
-              Vet All New ({statistics.new})
-            </Button>
-          )}
-          <Button onClick={() => setShowAddDialog(true)} className="gap-2">
+           <Button onClick={() => setShowAddDialog(true)} className="gap-2">
             <Plus className="h-4 w-4" />
             Add Companies
           </Button>
         </div>
       </div>
-
+      
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-md transition-shadow">
+           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-md transition-shadow">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -315,10 +148,6 @@ export function CompaniesView({ companies, loading, onRefresh }: CompaniesViewPr
                   <div className="text-sm font-medium text-blue-600">Total Companies</div>
                 </div>
                 <Users className="h-10 w-10 text-blue-500" />
-              </div>
-              <div className="mt-3 flex items-center text-xs text-blue-600">
-                <TrendingUp className="h-3 w-3 mr-1" />+{statistics.companiesThisWeek} this week (
-                {statistics.weeklyGrowth.toFixed(1)}%)
               </div>
             </CardContent>
           </Card>
@@ -332,9 +161,6 @@ export function CompaniesView({ companies, loading, onRefresh }: CompaniesViewPr
                 </div>
                 <Clock className="h-10 w-10 text-amber-500" />
               </div>
-              <div className="mt-3 text-xs text-amber-600">
-                {statistics.new} new + {statistics.vetting} vetting
-              </div>
             </CardContent>
           </Card>
 
@@ -345,48 +171,45 @@ export function CompaniesView({ companies, loading, onRefresh }: CompaniesViewPr
                   <div className="text-3xl font-bold text-emerald-700">{statistics.approved}</div>
                   <div className="text-sm font-medium text-emerald-600">Approved</div>
                 </div>
-                <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center">
+                 <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center">
                   <div className="h-5 w-5 rounded-full bg-white"></div>
                 </div>
               </div>
-              <div className="mt-3 text-xs text-emerald-600">{statistics.vetted} vetted ready for review</div>
             </CardContent>
           </Card>
         </div>
-
         <div className="lg:col-span-1">
-          <VettingWorkflow
-            vettingCompanies={vettingCompanies}
-            newCompanies={newCompanies}
-            onVetCompanies={handleVetCompanies}
-          />
+            <VettingWorkflow
+                vettingCompanies={vettingCompanies}
+                newCompanies={newCompanies}
+                onVetCompanies={handleVetCompanies}
+            />
         </div>
       </div>
 
-      <CompanyFiltersComponent filters={filters} onFiltersChange={setFilters} companies={companies} />
+      <CompanyFiltersComponent 
+        filters={filters} 
+        onFiltersChange={onFiltersChange} 
+        companies={companies} 
+      />
 
-      <div
-        ref={tableRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        className={isDragging ? "select-none" : ""}
-      >
-        <CompanyTable
-          companies={paginatedCompanies}
-          loading={loading}
-          selectedCompanies={selectedCompanies}
-          onSelectedCompaniesChange={setSelectedCompanies}
-          onCompanyClick={setSelectedCompany}
-          onRefresh={onRefresh}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-          itemsPerPage={itemsPerPage}
-          onItemsPerPageChange={setItemsPerPage}
-          totalResults={filteredCompanies.length}
-        />
-      </div>
+      <CompanyTable
+        companies={companies}
+        loading={loading}
+        selectedCompanies={selectedCompanies}
+        onSelectedCompaniesChange={setSelectedCompanies}
+        onCompanyClick={setSelectedCompany}
+        onRefresh={onRefresh}
+        currentPage={currentPage}
+        totalPages={Math.ceil(totalCompanies / itemsPerPage)}
+        onPageChange={onPageChange}
+        itemsPerPage={itemsPerPage}
+        onItemsPerPageChange={onItemsPerPageChange}
+        totalResults={totalCompanies}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSortChange={onSortChange}
+      />
 
       <AddCompaniesDialog open={showAddDialog} onOpenChange={setShowAddDialog} onSuccess={onRefresh} />
 
