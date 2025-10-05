@@ -16,7 +16,7 @@ export class ApiClient {
     this.token = token
   }
 
-  private async request(endpoint: string, options: RequestInit = {}, returnJson = true): Promise<any> {
+  private async request(endpoint: string, options: RequestInit = {}): Promise<Response> {
     const url = `${this.baseUrl}${endpoint}`
     const headers: HeadersInit = {
       "Content-Type": "application/json",
@@ -37,14 +37,7 @@ export class ApiClient {
       throw new Error(`API Error: ${response.status} ${errorBody.detail || response.statusText}`);
     }
     
-    if (returnJson) {
-        if (response.headers.get("Content-Type")?.includes("application/pdf")) {
-            return response.blob();
-        }
-        return response.json();
-    }
-
-    return response;
+    return response
   }
 
   // --- Company endpoints ---
@@ -72,7 +65,7 @@ export class ApiClient {
 
     const response = await this.request(`/companies?${params.toString()}`, {
       method: "GET",
-    }, false); // We set returnJson to false to get the full response
+    });
 
     const countHeader = response.headers.get('content-range');
     const count = countHeader ? parseInt(countHeader.split('/')[1], 10) : 0;
@@ -82,56 +75,64 @@ export class ApiClient {
   }
   
   async addCompanies(domains: string[], groupName?: string): Promise<{ added_count: number; skipped_domains: string[] }> {
-    return this.request("/companies/add", {
+    const response = await this.request("/companies/add", {
       method: "POST",
       body: JSON.stringify({ domains, group_name: groupName }),
-    })
+    });
+    return response.json();
   }
 
   async vetCompanies(companyIds: number[]): Promise<{ message: string }> {
-    return this.request("/companies/vet", {
+    const response = await this.request("/companies/vet", {
       method: "POST",
       body: JSON.stringify({ company_ids: companyIds }),
-    })
+    });
+    return response.json();
   }
 
   async approveCompany(companyId: number): Promise<Company> {
-    return this.request(`/companies/${companyId}/approve`, {
+    const response = await this.request(`/companies/${companyId}/approve`, {
       method: "POST",
-    })
+    });
+    return response.json();
   }
 
   async rejectCompany(companyId: number): Promise<Company> {
-    return this.request(`/companies/${companyId}/reject`, {
+    const response = await this.request(`/companies/${companyId}/reject`, {
       method: "POST",
-    })
+    });
+    return response.json();
   }
 
   async deleteCompanies(companyIds: number[]): Promise<{ message: string }> {
-    return this.request("/companies/delete-selected", {
+    const response = await this.request("/companies/delete-selected", {
       method: "POST",
       body: JSON.stringify({ company_ids: companyIds }),
-    })
+    });
+    return response.json();
   }
   
   async getCompanyContacts(companyId: number): Promise<Contact[]> {
-      return this.request(`/companies/${companyId}/contacts`)
+      const response = await this.request(`/companies/${companyId}/contacts`);
+      return response.json();
   }
 
   async downloadCompanyPDF(companyId: number): Promise<Blob> {
-    // This endpoint doesn't exist yet on the backend, but we can add the client method for it
-    return this.request(`/companies/${companyId}/pdf`)
+    const response = await this.request(`/companies/${companyId}/pdf`);
+    return response.blob();
   }
 
   // --- Contact endpoints ---
   async getContacts(): Promise<Contact[]> {
-    return this.request("/contacts")
+    const response = await this.request("/contacts");
+    return response.json();
   }
 
   async approveContact(contactId: number): Promise<Contact> {
-    return this.request(`/contacts/${contactId}/approve`, {
+    const response = await this.request(`/contacts/${contactId}/approve`, {
       method: "POST",
-    })
+    });
+    return response.json();
   }
   
   async enrichContact(contactId: number): Promise<Contact> {
@@ -139,38 +140,44 @@ export class ApiClient {
   }
 
   async addContactToCampaign(contactId: number, campaignType: "email" | "linkedin"): Promise<Contact> {
-    return this.request(`/contacts/${contactId}/campaign`, {
+    const response = await this.request(`/contacts/${contactId}/campaign`, {
       method: "POST",
       body: JSON.stringify({ campaign_type: campaignType }),
-    })
+    });
+    return response.json();
   }
 
   async updateContactMessage(contactId: number, subjectLine: string, emailBody: string): Promise<Contact> {
-    return this.request(`/contacts/${contactId}/message`, {
+    const response = await this.request(`/contacts/${contactId}/message`, {
       method: "PUT",
       body: JSON.stringify({ subject_line: subjectLine, email_body: emailBody }),
-    })
+    });
+    return response.json();
   }
 
   async archiveCampaign(campaignType: "email" | "linkedin", campaignName: string): Promise<{ message: string }> {
-    return this.request("/contacts/campaigns/archive", {
+    const response = await this.request("/contacts/campaigns/archive", {
       method: "POST",
       body: JSON.stringify({ campaign_type: campaignType, campaign_name: campaignName }),
-    })
+    });
+    return response.json();
   }
 
   async getPastCampaigns(): Promise<PastCampaign[]> {
-    return this.request("/contacts/campaigns/past")
+    const response = await this.request("/contacts/campaigns/past");
+    return response.json();
   }
 
   async getPastCampaignDetails(campaignId: number): Promise<PastCampaignContact[]> {
-    return this.request(`/contacts/campaigns/past/${campaignId}`)
+    const response = await this.request(`/contacts/campaigns/past/${campaignId}`);
+    return response.json();
   }
   
   // --- Config endpoint ---
   async getConfig(): Promise<{ supabase_url: string; supabase_anon_key: string }> {
-    return this.request("/config")
+    const response = await this.request("/config");
+    return response.json();
   }
 }
 
-export const apiClient = new ApiClient()
+export const apiClient = new ApiClient();

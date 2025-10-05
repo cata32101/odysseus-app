@@ -75,7 +75,7 @@ export function Dashboard() {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
     } else {
       setSortBy(field);
-      // Default to descending for scores, and ascending for everything else
+      // Default to DESC for scores, and ASC for everything else
       if (field.includes('_score')) {
         setSortDir('desc');
       } else {
@@ -83,7 +83,7 @@ export function Dashboard() {
       }
     }
   };
-
+  
   const renderActiveView = () => {
     switch (activeView) {
       case "companies":
