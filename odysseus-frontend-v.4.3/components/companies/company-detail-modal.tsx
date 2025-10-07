@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ExternalLink, CheckCircle, XCircle, Building2, Globe, Users, MapPin, Download, UserPlus } from "lucide-react"
+import { ExternalLink, CheckCircle, XCircle, Building2, Globe, Users, MapPin, Download, UserPlus, Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
@@ -81,6 +81,7 @@ const AnalysisCard = ({ title, content }: { title: string; content?: string }) =
 export function CompanyDetailModal({ company, open, onOpenChange, onApprove, onReject }: CompanyDetailModalProps) {
   const [contacts, setContacts] = useState<any[]>([])
   const [loadingContacts, setLoadingContacts] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
   const { toast } = useToast()
 
   const canApproveReject = company.status === "Vetted"
@@ -90,7 +91,25 @@ export function CompanyDetailModal({ company, open, onOpenChange, onApprove, onR
     if (open && company.status === "Approved") {
       loadContacts()
     }
-  }, [open, company.status])
+  }, [open, company.status, company.id])
+
+  const handleApprove = async () => {
+    setIsUpdating(true)
+    try {
+      await onApprove()
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const handleReject = async () => {
+    setIsUpdating(true)
+    try {
+      await onReject()
+    } finally {
+      setIsUpdating(false)
+    }
+  }
 
   const handleDownloadPDF = async () => {
     try {
@@ -340,12 +359,12 @@ export function CompanyDetailModal({ company, open, onOpenChange, onApprove, onR
 
             {canApproveReject && (
               <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={onReject} className="gap-2 bg-transparent">
-                  <XCircle className="h-4 w-4" />
+                <Button variant="outline" onClick={handleReject} disabled={isUpdating} className="gap-2 bg-transparent">
+                  {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
                   Reject
                 </Button>
-                <Button onClick={onApprove} className="gap-2">
-                  <CheckCircle className="h-4 w-4" />
+                <Button onClick={handleApprove} disabled={isUpdating} className="gap-2">
+                  {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                   Approve & Source Contacts
                 </Button>
               </div>
@@ -473,7 +492,7 @@ export function CompanyDetailModal({ company, open, onOpenChange, onApprove, onR
                             variant={contact.status === "Enriched" ? "outline" : "default"}
                           >
                             <UserPlus className="h-4 w-4" />
-                            {contact.status === "Enriched" ? "Re-enrich" : "Re-enrich"}
+                            {contact.status === "Enriched" ? "Re-enrich" : "Enrich"}
                           </Button>
                         </div>
                       ))}

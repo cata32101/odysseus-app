@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import {
   Dialog,
@@ -51,13 +50,14 @@ export function AddCompaniesDialog({ open, onOpenChange, onSuccess }: AddCompani
         .map((d) => d.trim())
         .filter((d) => d.length > 0)
 
-      const CHUNK_SIZE = 100 // Adjust the chunk size as needed
+      // This logic handles large lists by splitting them into chunks of 100.
+      const CHUNK_SIZE = 100
       for (let i = 0; i < domainList.length; i += CHUNK_SIZE) {
         const chunk = domainList.slice(i, i + CHUNK_SIZE)
         const result = await apiClient.addCompanies(chunk, groupName || undefined)
 
         toast({
-          title: `Companies Added (Chunk ${i / CHUNK_SIZE + 1})`,
+          title: `Companies Added (Chunk ${Math.floor(i / CHUNK_SIZE) + 1})`,
           description: `Added ${result.added_count} companies. ${
             result.skipped_domains?.length || 0
           } duplicates skipped.`,
@@ -100,7 +100,8 @@ export function AddCompaniesDialog({ open, onOpenChange, onSuccess }: AddCompani
               onChange={(e) => setDomains(e.target.value)}
               rows={8}
               required
-              className="max-h-64 overflow-y-auto" // Added classes for scrolling
+              // These classes enable scrolling for very long lists of domains.
+              className="max-h-64 overflow-y-auto"
             />
             <p className="text-sm text-muted-foreground">
               Enter one domain per line. Duplicates will be automatically skipped.
@@ -115,7 +116,9 @@ export function AddCompaniesDialog({ open, onOpenChange, onSuccess }: AddCompani
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
             />
-            <p className="text-sm text-muted-foreground">Organize companies into groups for easier management.</p>
+            <p className="text-sm text-muted-foreground">
+              Assign a new or existing group to organize these companies.
+            </p>
           </div>
 
           <DialogFooter>

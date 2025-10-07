@@ -179,26 +179,6 @@ export function CompaniesView({
         </div>
       </div>
       
-      {selectedCompanies.length > 0 && (
-          <Card className="p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-muted-foreground">{selectedCompanies.length} selected</span>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={() => handleApproveRejectSelected('approve')}>
-                        <CheckCircle className="h-4 w-4 text-green-600"/> Approve
-                    </Button>
-                     <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={() => handleApproveRejectSelected('reject')}>
-                        <XCircle className="h-4 w-4 text-orange-600"/> Reject
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={handleDeleteSelected} className="gap-2">
-                      <Trash2 className="h-4 w-4" />
-                      Delete
-                    </Button>
-                </div>
-              </div>
-          </Card>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
@@ -283,8 +263,20 @@ export function CompaniesView({
           company={selectedCompany}
           open={!!selectedCompany}
           onOpenChange={(open) => !open && setSelectedCompany(null)}
-          onApprove={() => apiClient.approveCompany(selectedCompany.id).then(onRefresh)}
-          onReject={() => apiClient.rejectCompany(selectedCompany.id).then(onRefresh)}
+          onApprove={async () => {
+            if (selectedCompany) {
+              await apiClient.approveCompany(selectedCompany.id);
+              onRefresh();
+              setSelectedCompany(null);
+            }
+          }}
+          onReject={async () => {
+            if (selectedCompany) {
+              await apiClient.rejectCompany(selectedCompany.id);
+              onRefresh();
+              setSelectedCompany(null);
+            }
+          }}
         />
       )}
     </div>
