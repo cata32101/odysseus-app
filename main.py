@@ -195,6 +195,25 @@ def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
     approved_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
     return approved_res.data
 
+
+@app.post("/companies/retry-failed", status_code=202, dependencies=[Depends(get_current_user)])
+def retry_failed_companies(supabase: Client = Depends(get_supabase)):
+    try:
+        # Get all companies with "Failed" status
+        failed_companies_res = supabase.table('companies').select('id').eq('status', 'Failed').execute()
+        if not failed_companies_res.data:
+            raise HTTPException(status_code=404, detail="No failed companies found to retry.")
+
+        failed_company_ids = [c['id'] for c in failed_companies_res.data]
+        
+        # Trigger the vetting task for these companies
+        run_vetting_task.delay(failed_company_ids)
+        
+        return {"message": f"Vetting process has been re-initiated for {len(failed_company_ids)} failed companies."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    
 @app.post("/companies/{company_id}/reject", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def reject_company(company_id: int, supabase: Client = Depends(get_supabase)):
     company_res = supabase.table('companies').select('status').eq('id', company_id).maybe_single().execute()
