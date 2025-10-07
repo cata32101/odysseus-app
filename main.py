@@ -53,6 +53,7 @@ def get_all_companies(
     group: List[str] = Query(None),
     sort_by: str = 'created_at',
     sort_dir: str = 'desc',
+    include_null_scores: bool = False, # Add this new parameter
     unified_score_min: Optional[float] = Query(None),
     unified_score_max: Optional[float] = Query(None),
     geography_score_min: Optional[int] = Query(None),
@@ -78,26 +79,36 @@ def get_all_companies(
             other_groups = [g for g in group if g != "No Group"]
             or_conditions = ["group_name.is.null"]
             if other_groups:
-                or_conditions.append(f"group_name.in.({','.join(other_groups)})")
+                or_conditions.append(f"group_name.in.({','.join(map(str, other_groups))})")
             query = query.or_(",".join(or_conditions))
         else:
             query = query.in_('group_name', group)
 
-    # Simplified Score Filters - The frontend will now handle combining results
-    if unified_score_min is not None: query = query.gte('unified_score', unified_score_min)
-    if unified_score_max is not None: query = query.lte('unified_score', unified_score_max)
-    if geography_score_min is not None: query = query.gte('geography_score', geography_score_min)
-    if geography_score_max is not None: query = query.lte('geography_score', geography_score_max)
-    if industry_score_min is not None: query = query.gte('industry_score', industry_score_min)
-    if industry_score_max is not None: query = query.lte('industry_score', industry_score_max)
-    if russia_score_min is not None: query = query.gte('russia_score', russia_score_min)
-    if russia_score_max is not None: query = query.lte('russia_score', russia_score_max)
-    if size_score_min is not None: query = query.gte('size_score', size_score_min)
-    if size_score_max is not None: query = query.lte('size_score', size_score_max)
+    # --- Start Refactored Score Logic ---
+    score_filters = []
+    if unified_score_min is not None and unified_score_min > 0: score_filters.append(f"unified_score.gte.{unified_score_min}")
+    if unified_score_max is not None and unified_score_max < 10: score_filters.append(f"unified_score.lte.{unified_score_max}")
+    if geography_score_min is not None and geography_score_min > 0: score_filters.append(f"geography_score.gte.{geography_score_min}")
+    if geography_score_max is not None and geography_score_max < 10: score_filters.append(f"geography_score.lte.{geography_score_max}")
+    if industry_score_min is not None and industry_score_min > 0: score_filters.append(f"industry_score.gte.{industry_score_min}")
+    if industry_score_max is not None and industry_score_max < 10: score_filters.append(f"industry_score.lte.{industry_score_max}")
+    if russia_score_min is not None and russia_score_min > 0: score_filters.append(f"russia_score.gte.{russia_score_min}")
+    if russia_score_max is not None and russia_score_max < 10: score_filters.append(f"russia_score.lte.{russia_score_max}")
+    if size_score_min is not None and size_score_min > 0: score_filters.append(f"size_score.gte.{size_score_min}")
+    if size_score_max is not None and size_score_max < 10: score_filters.append(f"size_score.lte.{size_score_max}")
 
-    # Sorting with nulls last
+    if score_filters:
+        score_query_part = f"and({','.join(score_filters)})"
+        if include_null_scores:
+            # Matches scores OR status is New/Failed (which have null scores)
+            query = query.or_(f"{score_query_part},status.in.(New,Failed,Vetting)")
+        else:
+            # Strictly match only the scores
+            query = query.execute_count_query(f"and({','.join(score_filters)})")
+
+    # --- End Refactored Score Logic ---
+
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
-
     response = query.range(offset, offset + limit - 1).execute()
     
     count = response.count
