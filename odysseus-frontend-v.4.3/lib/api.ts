@@ -62,6 +62,9 @@ export class ApiClient {
   if (filters.group && filters.group.length > 0) {
     filters.group.forEach((g: string) => params.append("group", g));
   }
+  if (filters.include_null_scores) {
+    params.append('include_null_scores', 'true');
+  }
 
   if (filters.scoreRanges) {
       if (filters.scoreRanges.unified) {
