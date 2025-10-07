@@ -70,22 +70,29 @@ def get_all_companies(
     
     query = supabase.table('companies').select('*', count='exact')
 
-    # Apply base text and status filters first
+    # Apply base text and status filters
     if search:
         query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
     if status:
         query = query.in_('status', status)
+    
+    # --- Start of Restored Group Filtering Logic ---
     if group:
         if "No Group" in group:
+            # Handle cases where "No Group" is selected along with other groups
             other_groups = [g for g in group if g != "No Group"]
             or_conditions = ["group_name.is.null"]
             if other_groups:
-                or_conditions.append(f"group_name.in.({','.join(map(str, other_groups))})")
+                # Ensure correct formatting for the 'in' clause
+                formatted_groups = ",".join([f'"{g}"' for g in other_groups])
+                or_conditions.append(f"group_name.in.({formatted_groups})")
             query = query.or_(",".join(or_conditions))
         else:
+            # Filter by specific groups
             query = query.in_('group_name', group)
+    # --- End of Restored Group Filtering Logic ---
 
-    # --- Corrected Score Filtering Logic ---
+    # Score Filtering Logic
     score_filters = []
     if unified_score_min is not None and unified_score_min > 0: score_filters.append(f"unified_score.gte.{unified_score_min}")
     if unified_score_max is not None and unified_score_max < 10: score_filters.append(f"unified_score.lte.{unified_score_max}")
@@ -102,16 +109,13 @@ def get_all_companies(
 
     if is_score_filter_active:
         if include_null_scores:
-            # Combines score filters with an OR to also include non-scored statuses
             score_query_part = f"and({','.join(score_filters)})"
             query = query.or_(f"{score_query_part},status.in.(New,Failed,Vetting)")
         else:
-            # Applies each score filter individually, which fixes the AttributeError
             for f in score_filters:
                 column, op, value_str = f.split('.', 2)
                 value = float(value_str) if 'unified' in column else int(value_str)
                 query = getattr(query, op)(column, value)
-    # --- End of Corrected Logic ---
 
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
     response = query.range(offset, offset + limit - 1).execute()
