@@ -42,6 +42,7 @@ export interface CompanyFilters {
   search: string
   status: Status[]
   group: string[]
+  include_null_scores: boolean
   scoreRanges: {
     unified: [number, number]
     geography: [number, number]
