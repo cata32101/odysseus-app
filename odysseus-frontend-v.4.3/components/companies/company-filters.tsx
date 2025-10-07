@@ -64,6 +64,7 @@ export function CompanyFiltersComponent({
       search: "",
       status: [],
       group: [],
+      include_null_scores: true,
       scoreRanges: {
         unified: [0, 10],
         geography: [0, 10],
