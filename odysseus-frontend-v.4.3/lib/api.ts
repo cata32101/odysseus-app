@@ -55,15 +55,14 @@ export class ApiClient {
     sort_by: sortBy,
     sort_dir: sortDir,
   });
-
+  if (filters.include_null_scores) {
+    params.append('include_null_scores', String(filters.include_null_scores));
+  }
   if (filters.status && filters.status.length > 0) {
     filters.status.forEach((s: string) => params.append("status", s));
   }
   if (filters.group && filters.group.length > 0) {
     filters.group.forEach((g: string) => params.append("group", g));
-  }
-  if (filters.include_null_scores) {
-    params.append('include_null_scores', 'true');
   }
 
   if (filters.scoreRanges) {
