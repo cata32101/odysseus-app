@@ -51,12 +51,18 @@ export function AddCompaniesDialog({ open, onOpenChange, onSuccess }: AddCompani
         .map((d) => d.trim())
         .filter((d) => d.length > 0)
 
-      const result = await apiClient.addCompanies(domainList, groupName || undefined)
+      const CHUNK_SIZE = 100 // Adjust the chunk size as needed
+      for (let i = 0; i < domainList.length; i += CHUNK_SIZE) {
+        const chunk = domainList.slice(i, i + CHUNK_SIZE)
+        const result = await apiClient.addCompanies(chunk, groupName || undefined)
 
-      toast({
-        title: "Companies Added",
-        description: `Added ${result.added_count} companies. ${result.skipped_domains?.length || 0} duplicates skipped.`,
-      })
+        toast({
+          title: `Companies Added (Chunk ${i / CHUNK_SIZE + 1})`,
+          description: `Added ${result.added_count} companies. ${
+            result.skipped_domains?.length || 0
+          } duplicates skipped.`,
+        })
+      }
 
       setDomains("")
       setGroupName("")
@@ -94,6 +100,7 @@ export function AddCompaniesDialog({ open, onOpenChange, onSuccess }: AddCompani
               onChange={(e) => setDomains(e.target.value)}
               rows={8}
               required
+              className="max-h-64 overflow-y-auto" // Added classes for scrolling
             />
             <p className="text-sm text-muted-foreground">
               Enter one domain per line. Duplicates will be automatically skipped.
