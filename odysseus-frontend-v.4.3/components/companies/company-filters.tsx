@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Switch } from "@/components/ui/switch";
 import { X, Search, ChevronDown, Filter } from "lucide-react"
 
 interface CompanyFiltersProps {
@@ -154,6 +155,19 @@ export function CompanyFiltersComponent({
                 </div>
               )}
 
+               <div className="flex items-center space-x-2 pt-4">
+                <Switch
+                  id="include-null-scores"
+                  checked={filters.include_null_scores}
+                  onCheckedChange={(checked) =>
+                    onFiltersChange({ ...filters, include_null_scores: checked })
+                  }
+                />
+                <Label htmlFor="include-null-scores">
+                  Include companies without scores (New, Failed, Vetting)
+                </Label>
+              </div>
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <Label>Score Ranges</Label>
@@ -175,7 +189,7 @@ export function CompanyFiltersComponent({
                           }
                           max={10}
                           min={0}
-                          step={0.1}
+                          step={scoreType === 'unified' ? 0.1 : 1} // Set step to 1 for integer scores
                           className="w-full"
                         />
                       </div>
