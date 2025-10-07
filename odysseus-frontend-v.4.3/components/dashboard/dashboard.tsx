@@ -18,6 +18,7 @@ const defaultFilters: CompanyFilters = {
   search: "",
   status: [],
   group: [],
+  include_null_scores: true,
   scoreRanges: {
     unified: [0, 10],
     geography: [0, 10],
@@ -43,50 +44,30 @@ export function Dashboard() {
   const { toast } = useToast()
   const supabase = createClient()
 
-  const isScoreFilterActive = useCallback(() => {
-    const { scoreRanges } = filters;
-    return (
-      scoreRanges.unified[0] > 0 || scoreRanges.unified[1] < 10 ||
-      scoreRanges.geography[0] > 0 || scoreRanges.geography[1] < 10 ||
-      scoreRanges.industry[0] > 0 || scoreRanges.industry[1] < 10 ||
-      scoreRanges.russia[0] > 0 || scoreRanges.russia[1] < 10 ||
-      scoreRanges.size[0] > 0 || scoreRanges.size[1] < 10
-    );
-  }, [filters]);
+  // const isScoreFilterActive = useCallback(() => {
+  //   const { scoreRanges } = filters;
+  //   return (
+  //     scoreRanges.unified[0] > 0 || scoreRanges.unified[1] < 10 ||
+  //     scoreRanges.geography[0] > 0 || scoreRanges.geography[1] < 10 ||
+  //     scoreRanges.industry[0] > 0 || scoreRanges.industry[1] < 10 ||
+  //     scoreRanges.russia[0] > 0 || scoreRanges.russia[1] < 10 ||
+  //     scoreRanges.size[0] > 0 || scoreRanges.size[1] < 10
+  //   );
+  // }, [filters]);
 
   const refreshData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      let finalCompanies: Company[] = [];
-      let finalCount = 0;
-
-      // Use composite queries if a score filter is active
-      if (isScoreFilterActive()) {
-        const [scoredResponse, unscoredResponse] = await Promise.all([
-          apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir),
-          apiClient.getCompanies(1, 1000, { ...filters, status: ['New', 'Failed'], scoreRanges: defaultFilters.scoreRanges }, 'created_at', 'desc')
-        ]);
-        
-        const combined = [...scoredResponse.data, ...unscoredResponse.data];
-        const uniqueCompanies = Array.from(new Map(combined.map(c => [c.id, c])).values());
-        
-        finalCompanies = uniqueCompanies;
-        finalCount = scoredResponse.count + unscoredResponse.count; // This is an approximation
-      } else {
-        // Standard fetch if no score filters
-        const companyResponse = await apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir);
-        finalCompanies = companyResponse.data;
-        finalCount = companyResponse.count;
-      }
-
+      // This is now the ONLY logic needed
+      const companyResponse = await apiClient.getCompanies(currentPage, itemsPerPage, filters, sortBy, sortDir);
       const [contactsData, allCompaniesResponse] = await Promise.all([
         apiClient.getContacts(),
         apiClient.getCompaniesForStats()
       ]);
 
-      setCompanies(finalCompanies);
-      setTotalCompanies(finalCount);
+      setCompanies(companyResponse.data);
+      setTotalCompanies(companyResponse.count);
       setContacts(contactsData);
       setAllCompaniesForStats(allCompaniesResponse);
     } catch (error) {
@@ -99,7 +80,8 @@ export function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir, toast, isScoreFilterActive]);
+    // REMOVE isScoreFilterActive from the dependency array
+  }, [user, currentPage, itemsPerPage, filters, sortBy, sortDir, toast]);
 
   useEffect(() => {
     refreshData();
