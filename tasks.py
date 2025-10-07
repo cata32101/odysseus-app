@@ -61,7 +61,49 @@ def get_apollo_enrichment(domain: str) -> dict | None:
     except requests.exceptions.RequestException as e:
         print(f"Apollo API error for domain {domain}: {e}")
         return None
+    
+def get_gemini_enrichment_basic(domain: str) -> dict:
+    """
+    A simplified vetting process using Gemini for basic information extraction
+    if Apollo fails.
+    """
+    print(f"⚠️ Apollo failed for {domain}. Falling back to Gemini basic vetting.")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise Exception("GEMINI_API_KEY not found for fallback.")
 
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=gemini_api_key)
+    
+    transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
+
+    prompt = f"""
+    Based on the following web search transcript for the domain "{domain}", extract the company's official name and its official LinkedIn URL.
+
+    Research Transcript:
+    {transcript}
+
+    Respond with a JSON object containing "name" and "linkedin_url".
+    If a value cannot be confidently determined, return null for that key.
+    Example response: {{"name": "Example Corp", "linkedin_url": "https://www.linkedin.com/company/example"}}
+    """
+    
+    try:
+        response_content = llm.invoke(prompt).content
+        # Clean the response to ensure it's valid JSON
+        clean_response = response_content.strip().replace('```json', '').replace('```', '')
+        data = json.loads(clean_response)
+        
+        # Return a dictionary that can be used for the Apollo data structure
+        return {
+            "organization": {
+                "name": data.get("name"),
+                "linkedin_url": data.get("linkedin_url"),
+            }
+        }
+    except (json.JSONDecodeError, AttributeError, Exception) as e:
+        print(f"Could not parse Gemini fallback response for {domain}: {e}")
+        return None # Return None to indicate failure
+    
 def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
     topic_sources = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(queries)) as executor:
@@ -246,10 +288,14 @@ def get_gemini_vetting(company_data: dict) -> dict:
 def vet_single_company(company: dict, supabase: Client) -> dict | None:
     try:
         supabase.table('companies').update({'status': Status.VETTING.value}).eq('id', company['id']).execute()
-        apollo_data = get_apollo_enrichment(company['domain'])
         
+        # --- MODIFIED: ADDED FALLBACK LOGIC ---
+        apollo_data = get_apollo_enrichment(company['domain'])
         if not apollo_data or not apollo_data.get("organization"):
-            raise Exception("Apollo enrichment failed or returned no organization data.")
+            apollo_data = get_gemini_enrichment_basic(company['domain'])
+            if not apollo_data or not apollo_data.get("organization"):
+                 raise Exception("Primary (Apollo) and fallback (Gemini) enrichment failed.")
+        # --- END OF MODIFICATION ---
         
         vetting_results = get_gemini_vetting(apollo_data)
         org_data = apollo_data.get("organization", {})
@@ -267,7 +313,6 @@ def vet_single_company(company: dict, supabase: Client) -> dict | None:
         print(f"Failed to vet {company['domain']}: {e}")
         supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company['id']).execute()
         return None
-
 # --- Celery Task Definition ---
 
 @celery_app.task(name='tasks.run_vetting_task')

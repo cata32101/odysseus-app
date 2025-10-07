@@ -16,13 +16,13 @@ from models import *
 
 load_dotenv()
 
-app = FastAPI(title="Odysseus API", version="4.1.0")
+app = FastAPI(title="Odysseus API", version="4.2.0")
 
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://odysseus-frontend.onrender.com", # Example deployed URL
-    os.getenv("FRONTEND_URL") # More flexible for different environments
+    "https://odysseus-frontend.onrender.com",
+    os.getenv("FRONTEND_URL") 
 ]
 
 app.add_middleware(
@@ -70,29 +70,21 @@ def get_all_companies(
     
     query = supabase.table('companies').select('*', count='exact')
 
-    # Apply base text and status filters
     if search:
         query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
     if status:
         query = query.in_('status', status)
-    
-    # --- Start of Restored Group Filtering Logic ---
     if group:
         if "No Group" in group:
-            # Handle cases where "No Group" is selected along with other groups
             other_groups = [g for g in group if g != "No Group"]
             or_conditions = ["group_name.is.null"]
             if other_groups:
-                # Ensure correct formatting for the 'in' clause
                 formatted_groups = ",".join([f'"{g}"' for g in other_groups])
                 or_conditions.append(f"group_name.in.({formatted_groups})")
             query = query.or_(",".join(or_conditions))
         else:
-            # Filter by specific groups
             query = query.in_('group_name', group)
-    # --- End of Restored Group Filtering Logic ---
 
-    # Score Filtering Logic
     score_filters = []
     if unified_score_min is not None and unified_score_min > 0: score_filters.append(f"unified_score.gte.{unified_score_min}")
     if unified_score_max is not None and unified_score_max < 10: score_filters.append(f"unified_score.lte.{unified_score_max}")
@@ -132,7 +124,6 @@ def get_all_companies(
 @app.get("/companies/stats", dependencies=[Depends(get_current_user)])
 def get_company_stats(supabase: Client = Depends(get_supabase)):
     try:
-        # Add group_name to the select query
         response = supabase.table('companies').select('id, status, created_at, group_name').execute()
         return JSONResponse(content=response.data)
     except Exception as e:
@@ -146,9 +137,9 @@ def approve_selected_companies(req: VetCompaniesRequest, supabase: Client = Depe
 
 @app.post("/companies/reject-selected", dependencies=[Depends(get_current_user)])
 def reject_selected_companies(req: VetCompaniesRequest, supabase: Client = Depends(get_supabase)):
-    res = supabase.table('companies').update({'status': Status.REJECTED.value}).in_('id', req.company_ids).eq('status', 'Vetted').execute()
+    res = supabase.table('companies').update({'status': Status.REJECTED.value}).in_('id', req.company_ids).execute()
     return {"message": f"Attempted to reject {len(req.company_ids)} companies. {len(res.data)} were updated."}
-    
+
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
 def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supabase)):
     try:
@@ -171,16 +162,34 @@ def vet_new_companies(req: VetCompaniesRequest):
     run_vetting_task.delay(req.company_ids)
     return {"message": f"Accepted: Vetting process for {len(req.company_ids)} companies has been started in the background."}
 
+@app.post("/companies/retry-failed", status_code=202, dependencies=[Depends(get_current_user)])
+def retry_failed_companies(supabase: Client = Depends(get_supabase)):
+    try:
+        failed_companies_res = supabase.table('companies').select('id').eq('status', 'Failed').execute()
+        if not failed_companies_res.data:
+            raise HTTPException(status_code=404, detail="No failed companies found to retry.")
+
+        failed_company_ids = [c['id'] for c in failed_companies_res.data]
+        
+        run_vetting_task.delay(failed_company_ids)
+        
+        return {"message": f"Vetting process has been re-initiated for {len(failed_company_ids)} failed companies."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/companies/{company_id}/approve", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
     company_res = supabase.table('companies').select('*').eq('id', company_id).eq('status', 'Vetted').maybe_single().execute()
     if not company_res.data: raise HTTPException(404, "Vetted company not found.")
     
-    supabase.table('companies').update({'status': Status.APPROVED.value}).eq('id', company_id).execute()
+    update_res = supabase.table('companies').update({'status': Status.APPROVED.value}).eq('id', company_id).select().single().execute()
+    
     try:
         apollo_org_id = company_res.data.get("apollo_data", {}).get("organization", {}).get("id")
-        if not apollo_org_id: raise HTTPException(400, "Apollo organization ID not found.")
-        
+        if not apollo_org_id: 
+            print(f"No Apollo Org ID for company {company_id}, skipping contact sourcing.")
+            return update_res.data
+
         contacts_from_apollo = search_apollo_contacts(apollo_org_id)
         if contacts_from_apollo:
             contacts_to_insert = [
@@ -189,45 +198,25 @@ def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
             ]
             supabase.table('contacts').insert(contacts_to_insert).execute()
     except Exception as e:
-        supabase.table('companies').update({'status': Status.VETTED.value}).eq('id', company_id).execute()
-        raise HTTPException(500, f"Contact sourcing failed: {e}")
+        # Don't revert the status, just log that contact sourcing failed
+        print(f"CRITICAL: Contact sourcing failed for approved company {company_id}: {e}")
 
-    approved_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
-    return approved_res.data
+    return update_res.data
 
-
-@app.post("/companies/retry-failed", status_code=202, dependencies=[Depends(get_current_user)])
-def retry_failed_companies(supabase: Client = Depends(get_supabase)):
-    try:
-        # Get all companies with "Failed" status
-        failed_companies_res = supabase.table('companies').select('id').eq('status', 'Failed').execute()
-        if not failed_companies_res.data:
-            raise HTTPException(status_code=404, detail="No failed companies found to retry.")
-
-        failed_company_ids = [c['id'] for c in failed_companies_res.data]
-        
-        # Trigger the vetting task for these companies
-        run_vetting_task.delay(failed_company_ids)
-        
-        return {"message": f"Vetting process has been re-initiated for {len(failed_company_ids)} failed companies."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-    
 @app.post("/companies/{company_id}/reject", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def reject_company(company_id: int, supabase: Client = Depends(get_supabase)):
     company_res = supabase.table('companies').select('status').eq('id', company_id).maybe_single().execute()
     if not company_res.data:
         raise HTTPException(404, "Company not found.")
     
-    if company_res.data['status'] == 'Approved':
-        raise HTTPException(400, "Cannot reject a company that has already been approved.")
+    if company_res.data['status'] not in ['Vetted', 'New']:
+        raise HTTPException(400, f"Cannot reject a company with status '{company_res.data['status']}'.")
 
-    update_res = supabase.table('companies').update({'status': Status.REJECTED.value}).eq('id', company_id).execute()
+    update_res = supabase.table('companies').update({'status': Status.REJECTED.value}).eq('id', company_id).select().single().execute()
     if not update_res.data:
         raise HTTPException(404, "Company not found or could not be updated.")
         
-    return update_res.data[0]
+    return update_res.data
 
 @app.post("/companies/delete-selected", dependencies=[Depends(get_current_user)])
 def delete_selected_companies(req: DeleteCompaniesRequest, supabase: Client = Depends(get_supabase)):
@@ -251,4 +240,3 @@ def get_contacts_for_company(company_id: int, supabase: Client = Depends(get_sup
             row['company_name'] = company_name
         contacts.append(row)
     return contacts
-
