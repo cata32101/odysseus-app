@@ -132,7 +132,8 @@ def get_all_companies(
 @app.get("/companies/stats", dependencies=[Depends(get_current_user)])
 def get_company_stats(supabase: Client = Depends(get_supabase)):
     try:
-        response = supabase.table('companies').select('id, status, created_at').execute()
+        # Add group_name to the select query
+        response = supabase.table('companies').select('id, status, created_at, group_name').execute()
         return JSONResponse(content=response.data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch stats: {str(e)}")
