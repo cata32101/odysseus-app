@@ -53,7 +53,7 @@ def get_all_companies(
     group: List[str] = Query(None),
     sort_by: str = 'created_at',
     sort_dir: str = 'desc',
-    include_null_scores: bool = False, # Add this new parameter
+    include_null_scores: bool = False,
     unified_score_min: Optional[float] = Query(None),
     unified_score_max: Optional[float] = Query(None),
     geography_score_min: Optional[int] = Query(None),
@@ -70,6 +70,7 @@ def get_all_companies(
     
     query = supabase.table('companies').select('*', count='exact')
 
+    # Apply base text and status filters first
     if search:
         query = query.or_(f"name.ilike.%{search}%,domain.ilike.%{search}%")
     if status:
@@ -84,7 +85,7 @@ def get_all_companies(
         else:
             query = query.in_('group_name', group)
 
-    # --- Start Refactored Score Logic ---
+    # --- Corrected Score Filtering Logic ---
     score_filters = []
     if unified_score_min is not None and unified_score_min > 0: score_filters.append(f"unified_score.gte.{unified_score_min}")
     if unified_score_max is not None and unified_score_max < 10: score_filters.append(f"unified_score.lte.{unified_score_max}")
@@ -97,16 +98,20 @@ def get_all_companies(
     if size_score_min is not None and size_score_min > 0: score_filters.append(f"size_score.gte.{size_score_min}")
     if size_score_max is not None and size_score_max < 10: score_filters.append(f"size_score.lte.{size_score_max}")
 
-    if score_filters:
-        score_query_part = f"and({','.join(score_filters)})"
+    is_score_filter_active = bool(score_filters)
+
+    if is_score_filter_active:
         if include_null_scores:
-            # Matches scores OR status is New/Failed (which have null scores)
+            # Combines score filters with an OR to also include non-scored statuses
+            score_query_part = f"and({','.join(score_filters)})"
             query = query.or_(f"{score_query_part},status.in.(New,Failed,Vetting)")
         else:
-            # Strictly match only the scores
-            query = query.execute_count_query(f"and({','.join(score_filters)})")
-
-    # --- End Refactored Score Logic ---
+            # Applies each score filter individually, which fixes the AttributeError
+            for f in score_filters:
+                column, op, value_str = f.split('.', 2)
+                value = float(value_str) if 'unified' in column else int(value_str)
+                query = getattr(query, op)(column, value)
+    # --- End of Corrected Logic ---
 
     query = query.order(sort_by, desc=not is_ascending, nullsfirst=False)
     response = query.range(offset, offset + limit - 1).execute()
