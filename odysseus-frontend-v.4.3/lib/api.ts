@@ -121,6 +121,13 @@ async vetCompanies(companyIds: number[]): Promise<{ message: string }> {
   return response.json();
 }
 
+async retryFailedCompanies(): Promise<{ message: string }> {
+  const response = await this.request("/companies/retry-failed", {
+    method: "POST",
+  });
+  return response.json();
+}
+
 async approveCompany(companyId: number): Promise<Company> {
   const response = await this.request(`/companies/${companyId}/approve`, {
     method: "POST",

@@ -9,7 +9,7 @@ import { CompanyDetailModal } from "@/components/companies/company-detail-modal"
 import { VettingWorkflow } from "@/components/companies/vetting-workflow"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Plus, TrendingUp, Users, Clock, CheckCircle, XCircle, Trash2 } from "lucide-react"
+import { Plus, TrendingUp, Users, Clock, CheckCircle, XCircle, Trash2, RefreshCw } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api"
 
@@ -96,7 +96,25 @@ export function CompaniesView({
       });
     }
   };
-
+  
+  const handleRetryFailed = async () => {
+    try {
+      const result = await apiClient.retryFailedCompanies();
+      toast({
+        title: "Retrying Failed Companies",
+        description: result.message,
+      });
+      onRefresh();
+    } catch (error: any) {
+      console.error("Failed to retry failed companies:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Could not start the retry process for failed companies.",
+        variant: "destructive",
+      });
+    }
+  };
+  
   const handleApproveRejectSelected = async (action: 'approve' | 'reject') => {
     const processableIds = selectedCompanies.filter(id => {
         const company = allCompaniesForStats.find(c => c.id === id);
@@ -150,6 +168,10 @@ export function CompaniesView({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button onClick={handleRetryFailed} variant="outline" className="gap-2 bg-transparent">
+            <RefreshCw className="h-4 w-4" />
+            Retry All Failed
+          </Button>
           <Button onClick={() => setShowAddDialog(true)} className="gap-2">
             <Plus className="h-4 w-4" />
             Add Companies
@@ -268,4 +290,3 @@ export function CompaniesView({
     </div>
   );
 }
-

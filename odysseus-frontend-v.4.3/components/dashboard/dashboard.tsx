@@ -109,13 +109,20 @@ export function Dashboard() {
   const handleSortChange = (field: string) => {
     if (sortBy === field) {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+      setCurrentPage(1);
     } else {
       setSortBy(field);
       setSortDir(field.includes('_score') ? 'desc' : 'asc');
+      setCurrentPage(1);
     }
     setCurrentPage(1);
   };
-  
+
+  const handleFiltersChange = (newFilters: CompanyFilters) => {
+    setFilters(newFilters);
+    setCurrentPage(1); // Reset to page 1 on filter change
+  };
+
   const renderActiveView = () => {
     switch (activeView) {
       case "companies":
@@ -130,7 +137,7 @@ export function Dashboard() {
             onPageChange={setCurrentPage}
             onItemsPerPageChange={setItemsPerPage}
             filters={filters}
-            onFiltersChange={setFilters}
+            onFiltersChange={handleFiltersChange}
             sortBy={sortBy}
             sortDir={sortDir}
             onSortChange={handleSortChange}
