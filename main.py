@@ -16,7 +16,7 @@ from models import *
 
 load_dotenv()
 
-app = FastAPI(title="Odysseus API", version="4.2.0")
+app = FastAPI(title="Odysseus API", version="4.3.0") # NEW: Version bump
 
 origins = [
     "http://localhost:3000",
@@ -140,18 +140,40 @@ def reject_selected_companies(req: VetCompaniesRequest, supabase: Client = Depen
     res = supabase.table('companies').update({'status': Status.REJECTED.value}).in_('id', req.company_ids).execute()
     return {"message": f"Attempted to reject {len(req.company_ids)} companies. {len(res.data)} were updated."}
 
+# NEW: This endpoint will handle changing the group for selected companies
+@app.post("/companies/change-group", dependencies=[Depends(get_current_user)])
+def change_company_group(req: ChangeGroupRequest, supabase: Client = Depends(get_supabase)):
+    try:
+        res = supabase.table('companies').update({'group_name': req.group_name}).in_('id', req.company_ids).execute()
+        return {"message": f"Group for {len(res.data)} companies was changed to '{req.group_name}'."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
 def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supabase)):
     try:
-        existing_response = supabase.table('companies').select('domain').in_('domain', req.domains).execute()
-        existing_domains = {item['domain'] for item in existing_response.data}
-        domains_to_add = [{'domain': d.strip(), 'status': 'New', 'group_name': req.group_name} for d in req.domains if d.strip() and d.strip() not in existing_domains]
-        skipped_domains = [d for d in req.domains if d.strip() in existing_domains]
+        all_domains = list(set([d.strip() for d in req.domains if d.strip()]))
+        existing_domains = set()
+        batch_size = 20 
+
+        # Batch the check for existing domains
+        for i in range(0, len(all_domains), batch_size):
+            batch = all_domains[i:i + batch_size]
+            if batch:
+                response = supabase.table('companies').select('domain').in_('domain', batch).execute()
+                for item in response.data:
+                    existing_domains.add(item['domain'])
+        
+        domains_to_add = [{'domain': d, 'status': 'New', 'group_name': req.group_name} for d in all_domains if d not in existing_domains]
+        skipped_domains = [d for d in all_domains if d in existing_domains]
         
         added_count = 0
-        if domains_to_add:
-            insert_response = supabase.table('companies').insert(domains_to_add).execute()
-            added_count = len(insert_response.data)
+        # Batch the inserts
+        for i in range(0, len(domains_to_add), batch_size):
+            batch = domains_to_add[i:i + batch_size]
+            if batch:
+                insert_response = supabase.table('companies').insert(batch).execute()
+                added_count += len(insert_response.data)
         
         return {"message": "Processed domains.", "added_count": added_count, "skipped_domains": skipped_domains}
     except Exception as e:
@@ -159,8 +181,15 @@ def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supab
 
 @app.post("/companies/vet", status_code=202, dependencies=[Depends(get_current_user)])
 def vet_new_companies(req: VetCompaniesRequest):
-    run_vetting_task.delay(req.company_ids)
-    return {"message": f"Accepted: Vetting process for {len(req.company_ids)} companies has been started in the background."}
+    # NEW: Split large vetting requests into smaller chunks
+    chunk_size = 10
+    company_ids_chunks = [req.company_ids[i:i + chunk_size] for i in range(0, len(req.company_ids), chunk_size)]
+    
+    for chunk in company_ids_chunks:
+        run_vetting_task.delay(chunk)
+        
+    return {"message": f"Accepted: Vetting process for {len(req.company_ids)} companies has been started in the background in {len(company_ids_chunks)} chunks."}
+
 
 @app.post("/companies/retry-failed", status_code=202, dependencies=[Depends(get_current_user)])
 def retry_failed_companies(supabase: Client = Depends(get_supabase)):
@@ -171,9 +200,14 @@ def retry_failed_companies(supabase: Client = Depends(get_supabase)):
 
         failed_company_ids = [c['id'] for c in failed_companies_res.data]
         
-        run_vetting_task.delay(failed_company_ids)
+        # NEW: Also chunk the retry mechanism
+        chunk_size = 10
+        company_ids_chunks = [failed_company_ids[i:i + chunk_size] for i in range(0, len(failed_company_ids), chunk_size)]
+
+        for chunk in company_ids_chunks:
+            run_vetting_task.delay(chunk)
         
-        return {"message": f"Vetting process has been re-initiated for {len(failed_company_ids)} failed companies."}
+        return {"message": f"Vetting process has been re-initiated for {len(failed_company_ids)} failed companies in {len(company_ids_chunks)} chunks."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

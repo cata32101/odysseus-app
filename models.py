@@ -60,6 +60,11 @@ class VetCompaniesRequest(BaseModel):
 class DeleteCompaniesRequest(BaseModel):
     company_ids: List[int]
 
+# NEW: Add this model for the change group endpoint
+class ChangeGroupRequest(BaseModel):
+    company_ids: List[int]
+    group_name: str
+
 class GeographyAnalysis(BaseModel):
     geography_score: int = Field(description="Integer 0-10 based on geopolitical factors.", ge=0, le=10)
     geography_reasoning: str = Field(description="Detailed reasoning for the geography score, citing sources.")

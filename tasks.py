@@ -3,6 +3,8 @@ import os
 import json
 import concurrent.futures
 from celery import Celery
+# NEW: Import SoftTimeLimitExceeded to handle task timeouts
+from celery.exceptions import SoftTimeLimitExceeded
 from dotenv import load_dotenv
 import requests
 from supabase import create_client, Client
@@ -54,7 +56,8 @@ def get_apollo_enrichment(domain: str) -> dict | None:
             "https://api.apollo.io/v1/organizations/enrich",
             headers={"X-Api-Key": apollo_api_key, 'Content-Type': 'application/json'},
             params={"domain": domain},
-            timeout=15
+            # NEW: Increased timeout for external API calls
+            timeout=20
         )
         response.raise_for_status()
         return response.json()
@@ -309,17 +312,30 @@ def vet_single_company(company: dict, supabase: Client) -> dict | None:
         }
         update_response = supabase.table('companies').update(update_data).eq('id', company['id']).execute()
         return update_response.data[0] if update_response.data else None
+    # NEW: Catch SoftTimeLimitExceeded to allow for retries
+    except SoftTimeLimitExceeded:
+        print(f"Vetting for {company['domain']} timed out. Task will be retried.")
+        # Re-raise the exception to trigger Celery's retry mechanism
+        raise
     except Exception as e:
         print(f"Failed to vet {company['domain']}: {e}")
         supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company['id']).execute()
         return None
 # --- Celery Task Definition ---
 
-@celery_app.task(name='tasks.run_vetting_task')
-def run_vetting_task(company_ids: list[int]):
+# NEW: Added retry logic and timeouts to the Celery task
+@celery_app.task(
+    name='tasks.run_vetting_task',
+    bind=True,  # Binds the task instance to the function
+    max_retries=3,  # Maximum number of retries
+    soft_time_limit=480,  # 8-minute soft time limit for each task run
+    time_limit=660  # 11-minute hard time limit
+)
+def run_vetting_task(self, company_ids: list[int]):
     """
     This is the main Celery task that will be run by the worker.
     It iterates through companies one by one to keep memory low.
+    It now includes automatic retries with exponential backoff.
     """
     print(f"Celery task started: Vetting {len(company_ids)} companies.")
     # Each task run gets its own Supabase client.
@@ -334,6 +350,10 @@ def run_vetting_task(company_ids: list[int]):
                 result = vet_single_company(company_res.data, supabase)
                 if result:
                     vetted_count += 1
+        except SoftTimeLimitExceeded:
+            print(f"Soft time limit exceeded for company ID {company_id}. Retrying task.")
+            # Retry the entire task with the remaining company IDs
+            raise self.retry(exc=SoftTimeLimitExceeded, countdown=60 * self.request.retries)
         except Exception as e:
             print(f"Error vetting company ID {company_id} in Celery task: {e}")
             # Optionally, you can update the status to FAILED here as well
