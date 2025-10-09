@@ -7,6 +7,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from typing import List, Optional
 from dotenv import load_dotenv
 from supabase import Client
+from datetime import datetime, timedelta, timezone # <-- Add timezone
+
 
 # Local imports
 from people import router as people_router
@@ -190,6 +192,31 @@ def vet_new_companies(req: VetCompaniesRequest):
         
     return {"message": f"Accepted: Vetting process for {len(req.company_ids)} companies has been started in the background in {len(company_ids_chunks)} chunks."}
 
+@app.post("/companies/reset-stuck-vetting", dependencies=[Depends(get_current_user)])
+def reset_stuck_vetting(supabase: Client = Depends(get_supabase)):
+    """
+    Finds companies that have been in the 'Vetting' state for more than
+    30 minutes and resets their status to 'New'.
+    """
+    try:
+        # Calculate the time 30 minutes ago in a UTC-aware format
+        time_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
+        
+        # Find companies that are stuck
+        stuck_companies_res = supabase.table('companies').select('id').eq('status', 'Vetting').lt('updated_at', time_threshold.isoformat()).execute()
+        
+        stuck_ids = [c['id'] for c in stuck_companies_res.data]
+        
+        if not stuck_ids:
+            return {"message": "No stuck companies found to reset."}
+            
+        # Reset the status of stuck companies back to 'New'
+        reset_res = supabase.table('companies').update({'status': 'New'}).in_('id', stuck_ids).execute()
+        
+        return {"message": f"Successfully reset {len(reset_res.data)} stuck companies."}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @app.post("/companies/retry-failed", status_code=202, dependencies=[Depends(get_current_user)])
 def retry_failed_companies(supabase: Client = Depends(get_supabase)):
