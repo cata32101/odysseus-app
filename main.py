@@ -177,6 +177,48 @@ def retry_failed_companies(supabase: Client = Depends(get_supabase)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+def search_apollo_contacts(organization_id: str, per_page: int = 8) -> list:
+    """
+    Searches for people in Apollo.io based on the organization ID and specific job titles.
+    """
+    apollo_api_key = os.getenv("APOLLO_API_KEY")
+    if not apollo_api_key:
+        print("APOLLO_API_KEY not found")
+        return []
+
+    url = "https://api.apollo.io/v1/mixed_people/search"
+
+    headers = {
+        "X-Api-Key": apollo_api_key,
+        "Content-Type": "application/json"
+    }
+
+    target_titles = [
+        "CEO", "CTO", "CFO", "COO", 
+        "Investment Manager", 
+        "Portfolio Manager", 
+        "Head of Oil", 
+        "Director of Investments",
+        "Managing Director"
+    ]
+
+    data = {
+        "organization_ids": [organization_id],
+        "person_titles": target_titles,
+        "sort_by_field": "person_linkedin_uid",
+        "sort_ascending": True,
+        "per_page": per_page
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response.raise_for_status()
+        return response.json().get("people", [])
+    except requests.exceptions.RequestException as e:
+        print(f"Apollo API error searching contacts for org {organization_id}: {e}")
+        return []
+
 @app.post("/companies/{company_id}/approve", response_model=VettedCompany, dependencies=[Depends(get_current_user)])
 def approve_company(company_id: int, supabase: Client = Depends(get_supabase)):
     company_res = supabase.table('companies').select('*').eq('id', company_id).eq('status', 'Vetted').maybe_single().execute()
