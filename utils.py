@@ -77,7 +77,7 @@ def brightdata_search(query: str) -> list:
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     url = "https://api.brightdata.com/request"
     try:
-        response = requests.post(url, json=body, headers=headers, timeout=30)
+        response = requests.post(url, json=body, headers=headers, timeout=45)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
         results = []
