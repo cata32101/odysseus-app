@@ -1,38 +1,49 @@
 # odysseus-app/utils.py
 
 import os
+import json
 import requests
 import urllib.parse
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+import warnings
 from supabase import create_client, Client
 from fastapi import Depends, HTTPException, Request
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from urllib3.poolmanager import PoolManager
 import ssl
 
+# Ignore the XML parsed as HTML warning, as it's not critical here
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 load_dotenv()
 
 # --- Custom SSL Adapter to fix SSLEOFError ---
-# This forces a more compatible set of security protocols.
-class TlsAdapter(HTTPAdapter):
-    def init_poolmanager(self, connections, maxsize, block=False):
-        # This is the magic part that forces a specific cipher suite
-        # This is a common fix for SSLEOFError when scraping at scale
-        CIPHERS = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384"
+class SSLAdapter(HTTPAdapter):
+    """
+    A custom Transport Adapter that forces a more compatible SSL/TLS context.
+    This is a robust solution for the 'SSLEOFError' and related connection issues
+    seen when scraping at scale from cloud environments.
+    """
+    def init_poolmanager(self, *args, **kwargs):
+        # Create a custom SSL context
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         
-        ctx = ssl.create_default_context()
-        ctx.set_ciphers(CIPHERS)
-        
-        self.poolmanager = PoolManager(
-            num_pools=connections,
-            maxsize=maxsize,
-            block=block,
-            ssl_context=ctx
-        )
+        # Force a more compatible set of ciphers
+        ciphers = [
+            "ECDHE-ECDSA-AES128-GCM-SHA256", "ECDHE-RSA-AES128-GCM-SHA256",
+            "ECDHE-ECDSA-AES256-GCM-SHA384", "ECDHE-RSA-AES256-GCM-SHA384",
+            "ECDHE-ECDSA-CHACHA20-POLY1305", "ECDHE-RSA-CHACHA20-POLY1305",
+            "DHE-RSA-AES128-GCM-SHA256", "DHE-RSA-AES256-GCM-SHA384"
+        ]
+        context.set_ciphers(':'.join(ciphers))
 
-# --- Supabase Client Setup ---
+        # This option can help with servers that have outdated or non-standard TLS implementations.
+        context.options |= ssl.OP_NO_TLSv1_3
+
+        kwargs['ssl_context'] = context
+        return super(SSLAdapter, self).init_poolmanager(*args, **kwargs)
+
+# --- Supabase & Auth (No changes needed here) ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -41,12 +52,10 @@ def get_supabase() -> Client:
         raise HTTPException(status_code=500, detail="Supabase URL/Key not configured in .env")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Authentication Middleware ---
 async def get_current_user(request: Request, supabase: Client = Depends(get_supabase)):
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
-    
     token = auth_header.replace("Bearer ", "")
     try:
         user_response = supabase.auth.get_user(token)
@@ -57,67 +66,74 @@ async def get_current_user(request: Request, supabase: Client = Depends(get_supa
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-# --- Helper Functions ---
-def make_request_with_brightdata(target_url: str) -> requests.Response:
+# --- CENTRALIZED & ROBUST REQUESTING LOGIC ---
+def make_request_with_proxy(target_url: str) -> requests.Response:
     """
-    Centralized function to make any HTTP GET request through the Bright Data proxy.
-    This should be used for all external web scraping.
+    Central function to make any HTTP GET request through the Bright Data proxy,
+    with robust retry logic and custom SSL handling.
     """
     api_key = os.getenv("BRIGHT_DATA_API_KEY")
     if not api_key:
         raise Exception("Error: BRIGHT_DATA_API_KEY is not set.")
 
-    proxy_url = f'http://brd.superproxy.io:22225'
+    # Bright Data proxy configuration
     proxy_user = 'brd-customer-hl_28883b89-zone-serp_api1'
+    proxy_url = f'http://{proxy_user}:{api_key}@brd.superproxy.io:22225'
     
-    proxies = {
-        'http': f'http://{proxy_user}:{api_key}@{proxy_url}',
-        'https': f'http://{proxy_user}:{api_key}@{proxy_url}',
-    }
+    proxies = {'http': proxy_url, 'https': proxy_url}
     
     session = requests.Session()
     
-    # Mount the custom TLS adapter and a retry adapter
-    session.mount('https://', TlsAdapter())
-    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    # Define retry strategy
+    retries = Retry(
+        total=3, 
+        backoff_factor=1, 
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods={"GET", "POST"} # Allow retries on POST for Bright Data
+    )
+    
+    # Mount the custom SSL adapter for https and the standard retry adapter for http
+    session.mount('https://', SSLAdapter(max_retries=retries))
     session.mount('http://', HTTPAdapter(max_retries=retries))
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     
-    # Make the request through the proxy
+    # Make the request through the proxy, disabling cert verification at the requests level
+    # because the proxy handles the secure connection.
     response = session.get(target_url, proxies=proxies, headers=headers, timeout=60, verify=False)
     response.raise_for_status()
     return response
 
 def fetch_and_parse_url(url: str) -> str:
     """
-    Fetches and parses a URL using the Bright Data proxy.
+    Fetches and parses a URL using the centralized proxy function.
     """
     if not url or not url.startswith(('http://', 'https://')):
         return "Invalid URL provided."
     try:
         print(f"📡 Fetching URL via Proxy: {url}")
-        response = make_request_with_brightdata(url)
+        response = make_request_with_proxy(url)
         
         soup = BeautifulSoup(response.text, 'lxml')
         for element in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
             element.decompose()
         
         text = ' '.join(soup.stripped_strings)
-        return text[:8000] # Increased character limit slightly
+        return text[:8000]
     except Exception as e:
-        print(f"Error fetching URL {url}: {e}")
-        return f"Error fetching URL: {e}"
+        error_message = f"Error fetching URL {url}: {str(e)}"
+        print(error_message)
+        return error_message
 
 def brightdata_search(query: str) -> list:
     """
-    Performs a Google search using the Bright Data proxy.
+    Performs a Google search using the centralized proxy function.
     """
     print(f"⚡️ Performing web search for: {query}")
     search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&gl=us&hl=en"
     
     try:
-        response = make_request_with_brightdata(search_url)
+        response = make_request_with_proxy(search_url)
         soup = BeautifulSoup(response.text, "lxml")
         results = []
         for result_div in soup.find_all('div', class_='tF2Cxc'):

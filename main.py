@@ -196,27 +196,30 @@ def vet_new_companies(req: VetCompaniesRequest):
 def reset_stuck_vetting(supabase: Client = Depends(get_supabase)):
     """
     Finds companies that have been in the 'Vetting' state for more than
-    30 minutes and resets their status to 'New'.
+    1 hour and resets their status to 'New'. This uses 'created_at' for reliability.
     """
     try:
-        # Calculate the time 30 minutes ago in a UTC-aware format
-        time_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
+        # Define the threshold as 1 hour ago in a UTC-aware format.
+        time_threshold = datetime.now(timezone.utc) - timedelta(hours=1)
         
-        # Find companies that are stuck
-        stuck_companies_res = supabase.table('companies').select('id').eq('status', 'Vetting').lt('updated_at', time_threshold.isoformat()).execute()
+        # Find companies that are stuck using the 'created_at' column.
+        # This is more reliable than 'updated_at'.
+        stuck_companies_res = supabase.table('companies').select('id').eq('status', 'Vetting').lt('created_at', time_threshold.isoformat()).execute()
         
+        if not stuck_companies_res.data:
+            return {"message": "No stuck companies were found."}
+            
         stuck_ids = [c['id'] for c in stuck_companies_res.data]
         
-        if not stuck_ids:
-            return {"message": "No stuck companies found to reset."}
-            
         # Reset the status of stuck companies back to 'New'
         reset_res = supabase.table('companies').update({'status': 'New'}).in_('id', stuck_ids).execute()
         
         return {"message": f"Successfully reset {len(reset_res.data)} stuck companies."}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        # Provide a more detailed error message if something still goes wrong.
+        print(f"Error in reset_stuck_vetting: {e}")
+        raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}")
 
 @app.post("/companies/retry-failed", status_code=202, dependencies=[Depends(get_current_user)])
 def retry_failed_companies(supabase: Client = Depends(get_supabase)):
