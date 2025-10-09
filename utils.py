@@ -1,6 +1,6 @@
-# utils.py
+# odysseus-app/utils.py
+
 import os
-import json
 import requests
 import urllib.parse
 from bs4 import BeautifulSoup
@@ -9,25 +9,40 @@ from fastapi import Depends, HTTPException, Request
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from urllib3.poolmanager import PoolManager
+import ssl
 
 load_dotenv()
 
+# --- Custom SSL Adapter to fix SSLEOFError ---
+# This forces a more compatible set of security protocols.
+class TlsAdapter(HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False):
+        # This is the magic part that forces a specific cipher suite
+        # This is a common fix for SSLEOFError when scraping at scale
+        CIPHERS = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384"
+        
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers(CIPHERS)
+        
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            ssl_context=ctx
+        )
+
 # --- Supabase Client Setup ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY") # Service role key for backend
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 def get_supabase() -> Client:
-    """Dependency to get a Supabase client instance for backend operations."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise HTTPException(status_code=500, detail="Supabase URL/Key not configured in .env")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Authentication Middleware ---
 async def get_current_user(request: Request, supabase: Client = Depends(get_supabase)):
-    """
-    Dependency that verifies the JWT from the Authorization header
-    and returns the user object. Raises 401 if invalid.
-    """
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
@@ -43,64 +58,66 @@ async def get_current_user(request: Request, supabase: Client = Depends(get_supa
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 # --- Helper Functions ---
-def requests_retry_session(
-    retries=3,
-    backoff_factor=0.3,
-    status_forcelist=(500, 502, 504),
-    session=None,
-):
-    session = session or requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
+def make_request_with_brightdata(target_url: str) -> requests.Response:
+    """
+    Centralized function to make any HTTP GET request through the Bright Data proxy.
+    This should be used for all external web scraping.
+    """
+    api_key = os.getenv("BRIGHT_DATA_API_KEY")
+    if not api_key:
+        raise Exception("Error: BRIGHT_DATA_API_KEY is not set.")
 
-# --- Helper Functions ---
+    proxy_url = f'http://brd.superproxy.io:22225'
+    proxy_user = 'brd-customer-hl_28883b89-zone-serp_api1'
+    
+    proxies = {
+        'http': f'http://{proxy_user}:{api_key}@{proxy_url}',
+        'https': f'http://{proxy_user}:{api_key}@{proxy_url}',
+    }
+    
+    session = requests.Session()
+    
+    # Mount the custom TLS adapter and a retry adapter
+    session.mount('https://', TlsAdapter())
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    session.mount('http://', HTTPAdapter(max_retries=retries))
+
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    
+    # Make the request through the proxy
+    response = session.get(target_url, proxies=proxies, headers=headers, timeout=60, verify=False)
+    response.raise_for_status()
+    return response
+
 def fetch_and_parse_url(url: str) -> str:
     """
-    Fetches a URL with retries and returns clean, stripped text content,
-    removing common irrelevant HTML tags.
+    Fetches and parses a URL using the Bright Data proxy.
     """
     if not url or not url.startswith(('http://', 'https://')):
         return "Invalid URL provided."
     try:
-        # Use a session with retries
-        session = requests_retry_session()
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = session.get(url, timeout=25, headers=headers) # Increased timeout
-        response.raise_for_status()
+        print(f"📡 Fetching URL via Proxy: {url}")
+        response = make_request_with_brightdata(url)
         
-        soup = BeautifulSoup(response.content, 'lxml')
+        soup = BeautifulSoup(response.text, 'lxml')
         for element in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
             element.decompose()
         
         text = ' '.join(soup.stripped_strings)
-        return text[:6000]
-    except requests.exceptions.RequestException as e:
+        return text[:8000] # Increased character limit slightly
+    except Exception as e:
         print(f"Error fetching URL {url}: {e}")
-        return f"Error fetching URL: An error occurred while trying to access the content."
+        return f"Error fetching URL: {e}"
 
 def brightdata_search(query: str) -> list:
-    # ... (this function is mostly fine, but let's increase the timeout)
+    """
+    Performs a Google search using the Bright Data proxy.
+    """
     print(f"⚡️ Performing web search for: {query}")
-    api_key = os.getenv("BRIGHT_DATA_API_KEY")
-    zone = os.getenv("BRIGHTDATA_ZONE", "serp_api1")
-    if not api_key:
-        print("Error: BRIGHT_DATA_API_KEY is not set.")
-        return []
-    body = {"zone": zone, "url": f"https://www.google.com/search?q={urllib.parse.quote(query)}&gl=us&hl=en", "format": "raw"}
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    url = "https://api.brightdata.com/request"
+    search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&gl=us&hl=en"
+    
     try:
-        response = requests.post(url, json=body, headers=headers, timeout=60) # Increased timeout to 60s
-        response.raise_for_status()
+        response = make_request_with_brightdata(search_url)
         soup = BeautifulSoup(response.text, "lxml")
         results = []
         for result_div in soup.find_all('div', class_='tF2Cxc'):
@@ -111,7 +128,6 @@ def brightdata_search(query: str) -> list:
             results.append({"name": title, "url": link, "snippet": snippet})
         print(f"✅ Parsed {len(results)} results from HTML for '{query}'.")
         return results
-    except requests.exceptions.RequestException as e:
-        error_content = e.response.text if e.response is not None and e.response.text else "No response body"
-        print(f"Error during Bright Data search: {e}. Body: {error_content}")
+    except Exception as e:
+        print(f"Error during Bright Data search for query '{query}': {e}")
         return []
