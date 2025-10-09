@@ -90,6 +90,16 @@ export function CompaniesView({
     };
   }, [selectedCompanies, allCompaniesForStats]);
 
+  const handleResetStuck = async () => {
+    try {
+      const result = await apiClient.resetStuckVetting();
+      toast({ title: "Resetting Stuck Companies", description: result.message });
+      onRefresh();
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Could not reset stuck companies.", variant: "destructive" });
+    }
+  };
+  
   const handleVetCompanies = async (companyIds: number[]) => {
     if (companyIds.length === 0) {
         toast({ title: "No New Companies to Vet", variant: "destructive" });
@@ -190,6 +200,7 @@ export function CompaniesView({
           <p className="text-muted-foreground">Showing {companies.length} of {totalCompanies} companies</p>
         </div>
         <div className="flex items-center gap-2">
+        <Button onClick={handleResetStuck} variant="outline" className="gap-2"><Clock className="h-4 w-4" />Reset Stuck</Button>
           <Button onClick={handleRetryFailed} variant="outline" className="gap-2"><RefreshCw className="h-4 w-4" />Retry All Failed</Button>
           <Button onClick={() => setShowAddDialog(true)} className="gap-2"><Plus className="h-4 w-4" />Add Companies</Button>
         </div>

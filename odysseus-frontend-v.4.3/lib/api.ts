@@ -166,6 +166,13 @@ async deleteCompanies(companyIds: number[]): Promise<{ message: string }> {
   return response.json();
 }
 
+async resetStuckVetting(): Promise<{ message: string }> {
+  const response = await this.request("/companies/reset-stuck-vetting", {
+    method: "POST",
+  });
+  return response.json();
+}
+
 async changeCompanyGroup(companyIds: number[], groupName: string): Promise<{ message: string }> {
     const response = await this.request("/companies/change-group", {
       method: "POST",
