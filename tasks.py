@@ -173,7 +173,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
       - **2:** Investments in major Western European economies only (Germany, France, UK, Nordics).
       - **1:** Very safe global footprint with minor exposure to stable Asia-Pacific or Latin American countries.
       - **0:** Ultra-safe investments only in highly stable, distant countries (e.g., Canada, US, Australia, NZ, Japan).
-    - **Output:** You MUST respond with a valid JSON object containing `geography_score` and `geography_reasoning`. Cite URLs from the transcript in your reasoning.
+    - **Output:** You MUST respond with a valid JSON object containing `geography_score` and `geography_reasoning`. Briefly state the source of the information.
     """),
         "industry": (IndustryAnalysis, f"""
     You are a seasoned partnership consultant and analyst with deep expertise in the upstream oil and gas sector.
@@ -190,7 +190,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
       - **2:** Energy service firms (EPC, oilfield services, equipment suppliers).
       - **1:** Diversified investors with no active energy involvement (e.g., family offices, conglomerates).
       - **0:** No alignment (consumer, retail, software, finance-only).
-    - **Output:** You MUST respond with a valid JSON object containing `industry_score` and `industry_reasoning`. Cite URLs from the transcript in your reasoning.
+    - **Output:** You MUST respond with a valid JSON object containing `industry_score` and `industry_reasoning`. Briefly state the source of the information.
     """),
         "russia": (RussiaAnalysis, f"""
     You are a compliance officer specializing in international sanctions against Russia.
@@ -207,13 +207,13 @@ def get_gemini_vetting(company_data: dict) -> dict:
       - **2:** Substantial ongoing presence. Significant business continues, no commitment to a full exit.
       - **1:** Major ongoing presence. Russia remains a key market or asset hub.
       - **0:** Fully embedded. Russian state-owned, based, or actively expanding post-2022.
-    - **Output:** You MUST respond with a valid JSON object containing `russia_score` and `russia_reasoning`. Cite URLs from the transcript in your reasoning.
+    - **Output:** You MUST respond with a valid JSON object containing `russia_score` and `russia_reasoning`. Briefly state the source of the information.
     """),
         "size": (SizeAnalysis, f"""
     You are an analyst sourcing mid-sized companies for potential partnerships.
     Evaluate the company's size based on employee count and revenue from the dossier and research. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring (0-10):** 10 for an ideal mid-market size (50-5000 employees). Score lower for companies that are too small (<10) or too large (>10,000), however a large company is still better than a very small one. a large corporation with 25 thousand should get a 1-2. Also take revenue into account, for example 50 employees but large revenue for their size is a score improvement.
-    - **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`. Cite URLs from the transcript in your reasoning.
+    - **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`. Briefly state the source of the information.
     """)
     }
 
