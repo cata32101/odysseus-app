@@ -7,6 +7,8 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from fastapi import Depends, HTTPException, Request
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 load_dotenv()
 
@@ -41,16 +43,38 @@ async def get_current_user(request: Request, supabase: Client = Depends(get_supa
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 # --- Helper Functions ---
+def requests_retry_session(
+    retries=3,
+    backoff_factor=0.3,
+    status_forcelist=(500, 502, 504),
+    session=None,
+):
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
+
+# --- Helper Functions ---
 def fetch_and_parse_url(url: str) -> str:
     """
-    Fetches a URL and returns clean, stripped text content,
+    Fetches a URL with retries and returns clean, stripped text content,
     removing common irrelevant HTML tags.
     """
     if not url or not url.startswith(('http://', 'https://')):
         return "Invalid URL provided."
     try:
+        # Use a session with retries
+        session = requests_retry_session()
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, timeout=15, headers=headers)
+        response = session.get(url, timeout=25, headers=headers) # Increased timeout
         response.raise_for_status()
         
         soup = BeautifulSoup(response.content, 'lxml')
@@ -64,9 +88,7 @@ def fetch_and_parse_url(url: str) -> str:
         return f"Error fetching URL: An error occurred while trying to access the content."
 
 def brightdata_search(query: str) -> list:
-    """
-    Performs a web search using Bright Data's Web Unlocker API and parses the HTML for Google results.
-    """
+    # ... (this function is mostly fine, but let's increase the timeout)
     print(f"⚡️ Performing web search for: {query}")
     api_key = os.getenv("BRIGHT_DATA_API_KEY")
     zone = os.getenv("BRIGHTDATA_ZONE", "serp_api1")
@@ -77,11 +99,10 @@ def brightdata_search(query: str) -> list:
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     url = "https://api.brightdata.com/request"
     try:
-        response = requests.post(url, json=body, headers=headers, timeout=45)
+        response = requests.post(url, json=body, headers=headers, timeout=60) # Increased timeout to 60s
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
         results = []
-        # This class selector is specific to Google's search result structure
         for result_div in soup.find_all('div', class_='tF2Cxc'):
             title = (result_div.find('h3').get_text() if result_div.find('h3') else "No Title")
             link = (result_div.find('a')['href'] if result_div.find('a') else "#")

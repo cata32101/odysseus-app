@@ -142,7 +142,12 @@ def get_gemini_vetting(company_data: dict) -> dict:
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key: raise Exception("GEMINI_API_KEY not found")
 
-    company_name = company_data.get("organization", {}).get("name", "Unknown Company")
+    company_name = company_data.get("organization", {}).get("name") # Get name, don't provide a default
+    
+    if not company_name or company_name == "Unknown Company":
+        print(f"🚫 Skipping multi-agent research because no valid company name was found.")
+        # Return a result that marks the company as failed but doesn't crash the task
+        return { "status": Status.FAILED.value, "investment_reasoning": "Failed to identify a valid company name during enrichment." }
     dossier = company_data.get("organization", {})
     
     print(f"🕵️ Initializing multi-agent research for {company_name}...")
@@ -328,8 +333,8 @@ def vet_single_company(company: dict, supabase: Client) -> dict | None:
     name='tasks.run_vetting_task',
     bind=True,  # Binds the task instance to the function
     max_retries=3,  # Maximum number of retries
-    soft_time_limit=480,  # 8-minute soft time limit for each task run
-    time_limit=660  # 11-minute hard time limit
+    soft_time_limit=1000,  # 8-minute soft time limit for each task run
+    time_limit=1800  # 11-minute hard time limit
 )
 def run_vetting_task(self, company_ids: list[int]):
     """
