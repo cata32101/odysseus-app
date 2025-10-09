@@ -182,7 +182,7 @@ export function CompanyTable({
       <div className="p-4">
         {selectedCompanies.length > 0 && (
           <div className="flex items-center justify-between mb-4 p-3 bg-muted rounded-md">
-            <span className="text-sm font-medium text-muted-foreground">{selectedCompanies.length} selected</span>
+            {/* <span className="text-sm font-medium text-muted-foreground">{selectedCompanies.length} selected</span>
             <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={() => {}}>
                     <CheckCircle className="h-4 w-4 text-green-600"/> Approve
@@ -194,7 +194,7 @@ export function CompanyTable({
                   <Trash2 className="h-4 w-4" />
                   Delete
                 </Button>
-            </div>
+            </div> */}
           </div>
       )}
 

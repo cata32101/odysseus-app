@@ -166,6 +166,14 @@ async deleteCompanies(companyIds: number[]): Promise<{ message: string }> {
   return response.json();
 }
 
+async changeCompanyGroup(companyIds: number[], groupName: string): Promise<{ message: string }> {
+    const response = await this.request("/companies/change-group", {
+      method: "POST",
+      body: JSON.stringify({ company_ids: companyIds, group_name: groupName }),
+    });
+    return response.json();
+}
+
 async getCompanyContacts(companyId: number): Promise<Contact[]> {
     const response = await this.request(`/companies/${companyId}/contacts`);
     return response.json();
@@ -234,5 +242,4 @@ async getConfig(): Promise<{ supabase_url: string; supabase_anon_key: string }> 
 }
 }
 
-export const apiClient = new ApiClient();
-
+export const apiClient = new ApiClient()
