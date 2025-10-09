@@ -75,7 +75,7 @@ def get_gemini_enrichment_basic(domain: str) -> dict:
     if not gemini_api_key:
         raise Exception("GEMINI_API_KEY not found for fallback.")
 
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=gemini_api_key)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key)
     
     transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
 
@@ -152,7 +152,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
         "russia": [ f"'{company_name}' russia involvement", f"'{company_name}' statement on Russian operations after February 2022", f"'{company_name}' russia sanctions", f"'{company_name}' russia assets"],
         "size": [ f"'{company_name}' number of employees", f"'{company_name}' revenue", f"'{company_name}' market size"]
     }
-    llm_args = {"model": "gemini-1.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
+    llm_args = {"model": "gemini-2.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(research_topics)) as executor:
         future_to_topic = {executor.submit(conduct_targeted_research, queries): topic for topic, queries in research_topics.items()}
