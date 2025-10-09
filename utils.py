@@ -73,12 +73,15 @@ def make_request_with_proxy(target_url: str) -> requests.Response:
     with robust retry logic and custom SSL handling.
     """
     api_key = os.getenv("BRIGHT_DATA_API_KEY")
-    if not api_key:
-        raise Exception("Error: BRIGHT_DATA_API_KEY is not set.")
+    customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
+    zone = os.getenv("BRIGHTDATA_ZONE", "serp_api1")
 
-    # Bright Data proxy configuration
-    proxy_user = 'brd-customer-hl_28883b89-zone-serp_api1'
-    proxy_url = f'http://{proxy_user}:{api_key}@brd.superproxy.io:22225'
+    if not all([api_key, customer_id]):
+        raise Exception("Error: Bright Data API Key or Customer ID is not set in .env file.")
+
+    # --- FIX: Use the correct port and dynamically construct the username ---
+    proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
+    proxy_url = f'http://{proxy_user}:{api_key}@brd.superproxy.io:33335' # <-- THE PORT IS NOW CORRECT
     
     proxies = {'http': proxy_url, 'https': proxy_url}
     
@@ -89,17 +92,16 @@ def make_request_with_proxy(target_url: str) -> requests.Response:
         total=3, 
         backoff_factor=1, 
         status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods={"GET", "POST"} # Allow retries on POST for Bright Data
+        allowed_methods={"GET", "POST"}
     )
     
-    # Mount the custom SSL adapter for https and the standard retry adapter for http
+    # Mount the custom SSL adapter and retry adapter
     session.mount('https://', SSLAdapter(max_retries=retries))
     session.mount('http://', HTTPAdapter(max_retries=retries))
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     
-    # Make the request through the proxy, disabling cert verification at the requests level
-    # because the proxy handles the secure connection.
+    # Make the request through the proxy
     response = session.get(target_url, proxies=proxies, headers=headers, timeout=60, verify=False)
     response.raise_for_status()
     return response
