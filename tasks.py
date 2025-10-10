@@ -16,6 +16,7 @@ import requests
 from supabase import create_client, Client, ClientOptions
 from langchain_google_genai import ChatGoogleGenerativeAI
 import time
+from urllib.parse import urlparse
 
 # Import the centralized request function from utils
 from utils import make_request_with_proxy, fetch_and_parse_url, brightdata_search
@@ -59,20 +60,12 @@ def get_supabase_client() -> Client:
 
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
-    proxies = {'http://': proxy_url, 'https://': proxy_url}
-
-    # --- FIX: Create the client and then configure its HTTP client directly ---
-    # This avoids the version-specific constructor error.
+    
+    # --- FINAL FIX: This is the correct and most compatible way ---
+    # We create the client and then directly modify the proxy settings 
+    # on its underlying HTTPX session.
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-    # The Supabase client uses an httpx.Client internally. We can set the proxies
-    # on this internal session after the client has been created.
-    # This is a more robust way to handle this than passing ClientOptions.
-    if hasattr(client.postgrest, 'session') and hasattr(client.postgrest.session, 'proxies'):
-        client.postgrest.session.proxies = proxies
-    else:
-        # This warning helps debug if the library structure changes in the future
-        print("Warning: Could not set proxies directly on the Supabase client session.")
+    client.postgrest.session.proxies = {"http://": proxy_url, "https://": proxy_url}
 
     return client
 
@@ -83,18 +76,25 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        # --- FIX: The API key should NOT be in the URL ---
-        api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={domain}"
+        # --- FIX: Sanitize the domain to remove protocols and paths ---
+        if "http" in domain:
+            clean_domain = urlparse(domain).netloc
+        else:
+            clean_domain = domain.split('/')[0]
+        
+        # Remove 'www.' if it exists
+        if clean_domain.startswith('www.'):
+            clean_domain = clean_domain[4:]
+
+        api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={clean_domain}"
         
         unlocker_zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
         if not unlocker_zone:
             raise Exception("BRIGHTDATA_UNLOCKER_ZONE is not set in environment variables.")
 
-        # --- FIX: Pass the Apollo API Key in the correct header ---
         apollo_headers = {"X-Api-Key": apollo_api_key}
             
-        print(f"📡 Fetching Apollo data via Unlocker Proxy for: {domain}")
-        # Pass the headers to our updated request function
+        print(f"📡 Fetching Apollo data via Unlocker Proxy for: {clean_domain}")
         response = make_request_with_proxy(api_url, zone=unlocker_zone, extra_headers=apollo_headers)
         
         return response.json()
