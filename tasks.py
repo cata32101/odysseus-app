@@ -39,6 +39,8 @@ celery_app = Celery(
 
 # --- CORRECTED HELPER FUNCTIONS ---
 
+from supabase import create_client, Client, ClientOptions
+
 def get_supabase_client() -> Client:
     """Creates a Supabase client that routes all its traffic through the Bright Data proxy."""
     SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -46,28 +48,32 @@ def get_supabase_client() -> Client:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Supabase URL/Key not configured for Celery worker.")
 
-    # --- PROXY CONFIGURATION FOR SUPABASE CLIENT ---
+    # --- PROXY CONFIGURATION ---
     customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
-    
-    # --- **FIX**: Use the correct password variable for the unlocker zone ---
-    proxy_password = os.getenv("BRIGHTDATA_UNLOCKER_PASSWORD") 
-    zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE") 
+    proxy_password = os.getenv("BRIGHTDATA_UNLOCKER_PASSWORD")
+    zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
 
     if not all([customer_id, zone, proxy_password]):
-        raise Exception("Bright Data proxy credentials for Supabase are not set in environment variables.")
+        raise Exception("FATAL: Bright Data proxy credentials for Supabase are not fully set.")
 
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
-    
-    # --- **FIX**: Ensure the correct port is used ---
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     proxies = {'http://': proxy_url, 'https://': proxy_url}
-    
-    # The Supabase client uses httpx under the hood. This is the correct
-    # format for passing proxy options to it via ClientOptions.
-    opts = ClientOptions(postgrest_client_options={'proxies': proxies})
-    
-    return create_client(SUPABASE_URL, SUPABASE_KEY, options=opts)
 
+    # --- FIX: Create the client and then configure its HTTP client directly ---
+    # This avoids the version-specific constructor error.
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    # The Supabase client uses an httpx.Client internally. We can set the proxies
+    # on this internal session after the client has been created.
+    # This is a more robust way to handle this than passing ClientOptions.
+    if hasattr(client.postgrest, 'session') and hasattr(client.postgrest.session, 'proxies'):
+        client.postgrest.session.proxies = proxies
+    else:
+        # This warning helps debug if the library structure changes in the future
+        print("Warning: Could not set proxies directly on the Supabase client session.")
+
+    return client
 
 def get_apollo_enrichment(domain: str) -> dict | None:
     """Gets Apollo enrichment data, routing the request through the Bright Data proxy."""
