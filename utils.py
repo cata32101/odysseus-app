@@ -52,29 +52,36 @@ def make_request_with_proxy(target_url: str, zone: str) -> requests.Response:
     allowing for different zones (e.g., 'serp_api1' or 'unlocker').
     """
     customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
-    
-    # --- FIX: Use the correct password for the zone ---
+    proxy_password = None
+    password_env_var = None
+
+    # --- FIX: Select the correct password and add specific error handling ---
     if zone == 'serp_api1':
         proxy_password = os.getenv("BRIGHTDATA_SERP_PASSWORD")
-    else:
+        password_env_var = "BRIGHTDATA_SERP_PASSWORD"
+    else: # Assumes any other zone (like 'unlocker') uses the unlocker password
         proxy_password = os.getenv("BRIGHTDATA_UNLOCKER_PASSWORD")
+        password_env_var = "BRIGHTDATA_UNLOCKER_PASSWORD"
 
-    if not all([customer_id, zone, proxy_password]):
-        raise Exception("Crucial Bright Data environment variables are not set.")
+    # More detailed error logging to quickly identify the problem
+    if not customer_id:
+        raise Exception("FATAL: BRIGHTDATA_CUSTOMER_ID environment variable is not set.")
+    if not proxy_password:
+        raise Exception(f"FATAL: The password environment variable '{password_env_var}' is not set for zone '{zone}'.")
 
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
-    
+
     proxies = {'http': proxy_url, 'https': proxy_url}
-    
+
     session = requests.Session()
     retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-    
+
     session.mount('https://', SSLAdapter(max_retries=retries))
     session.mount('http://', HTTPAdapter(max_retries=retries))
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-    
+
     response = session.get(target_url, proxies=proxies, headers=headers, timeout=60, verify=False)
     response.raise_for_status()
     return response
