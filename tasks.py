@@ -6,21 +6,18 @@ try:
 except ImportError:
     print("Warning: pyopenssl not found. SSL errors may occur.")
 
-
 import os
 import json
 import concurrent.futures
 from celery import Celery
-# NEW: Import SoftTimeLimitExceeded to handle task timeouts
 from celery.exceptions import SoftTimeLimitExceeded
 from dotenv import load_dotenv
 import requests
 from supabase import create_client, Client
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Local imports from your project
-from utils import fetch_and_parse_url, brightdata_search
-# MODIFICATION: Import from models.py, not main.py
+# Import the centralized request function from utils
+from utils import make_request_with_proxy, fetch_and_parse_url, brightdata_search
 from models import (
     GeographyAnalysis, IndustryAnalysis, RussiaAnalysis, SizeAnalysis, FinalAnalysis, Status
 )
@@ -28,15 +25,11 @@ from models import (
 load_dotenv()
 
 # --- Celery Configuration ---
-# MODIFICATION: More robust REDIS_URL handling with logging
 REDIS_URL = os.getenv("REDIS_URL")
-
 if not REDIS_URL:
     print("WARNING: REDIS_URL environment variable not found. Defaulting to localhost.")
     REDIS_URL = "redis://localhost:6379/0"
-
 print(f"INFO: Configuring Celery with broker URL: {REDIS_URL}")
-
 
 celery_app = Celery(
     'tasks',
@@ -44,77 +37,74 @@ celery_app = Celery(
     backend=REDIS_URL
 )
 
-# --- Helper Functions (Moved from main.py) ---
+# --- CORRECTED HELPER FUNCTIONS ---
 
 def get_supabase_client() -> Client:
-    """Creates a new Supabase client instance for the Celery worker."""
+    """Creates a Supabase client that routes all its traffic through the Bright Data proxy."""
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Supabase URL/Key not configured for Celery worker.")
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    # --- PROXY CONFIGURATION FOR SUPABASE CLIENT ---
+    customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
+    proxy_password = os.getenv("BRIGHTDATA_PROXY_PASSWORD")
+    # Use the unlocker zone for general API traffic like this
+    zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE") 
+
+    if not all([customer_id, zone, proxy_password]):
+        raise Exception("Bright Data proxy credentials for Supabase are not set in environment variables.")
+
+    proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
+    proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:33335'
+    proxies = {'http://': proxy_url, 'https://': proxy_url}
+    
+    return create_client(SUPABASE_URL, SUPABASE_KEY, options={"proxies": proxies})
 
 def get_apollo_enrichment(domain: str) -> dict | None:
+    """Gets Apollo enrichment data, routing the request through the Bright Data proxy."""
     apollo_api_key = os.getenv("APOLLO_API_KEY")
     if not apollo_api_key:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        response = requests.get(
-            "https://api.apollo.io/v1/organizations/enrich",
-            headers={"X-Api-Key": apollo_api_key, 'Content-Type': 'application/json'},
-            params={"domain": domain},
-            # NEW: Increased timeout for external API calls
-            timeout=20
-        )
-        response.raise_for_status()
+        # Construct the API URL
+        api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={domain}"
+        
+        unlocker_zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
+        if not unlocker_zone:
+            raise Exception("BRIGHTDATA_UNLOCKER_ZONE is not set in environment variables.")
+            
+        print(f"📡 Fetching Apollo data via Unlocker Proxy for: {domain}")
+        # Make the request using the centralized proxy function
+        response = make_request_with_proxy(api_url, zone=unlocker_zone)
         return response.json()
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"Apollo API error for domain {domain}: {e}")
         return None
-    
+
 def get_gemini_enrichment_basic(domain: str) -> dict:
-    """
-    A simplified vetting process using Gemini for basic information extraction
-    if Apollo fails.
-    """
     print(f"⚠️ Apollo failed for {domain}. Falling back to Gemini basic vetting.")
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
         raise Exception("GEMINI_API_KEY not found for fallback.")
-
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key)
-    
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=gemini_api_key)
     transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
-
     prompt = f"""
     Based on the following web search transcript for the domain "{domain}", extract the company's official name and its official LinkedIn URL.
-
-    Research Transcript:
-    {transcript}
-
     Respond with a JSON object containing "name" and "linkedin_url".
     If a value cannot be confidently determined, return null for that key.
     Example response: {{"name": "Example Corp", "linkedin_url": "https://www.linkedin.com/company/example"}}
     """
-    
     try:
         response_content = llm.invoke(prompt).content
-        # Clean the response to ensure it's valid JSON
         clean_response = response_content.strip().replace('```json', '').replace('```', '')
         data = json.loads(clean_response)
-        
-        # Return a dictionary that can be used for the Apollo data structure
-        return {
-            "organization": {
-                "name": data.get("name"),
-                "linkedin_url": data.get("linkedin_url"),
-            }
-        }
+        return {"organization": {"name": data.get("name"), "linkedin_url": data.get("linkedin_url")}}
     except (json.JSONDecodeError, AttributeError, Exception) as e:
         print(f"Could not parse Gemini fallback response for {domain}: {e}")
-        return None # Return None to indicate failure
-    
+        return None
+
 def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
     topic_sources = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(queries)) as executor:
@@ -124,16 +114,12 @@ def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
                 topic_sources.extend(future.result())
             except Exception as e:
                 print(f"A search query failed: {e}")
-
     unique_sources = list({s.get('url'): s for s in topic_sources if s.get('url')}.values())
-    
     transcript = "### Search Results Summary\n"
     for source in unique_sources:
         transcript += f"- Title: {source.get('name')}\n  URL: {source.get('url')}\n  Snippet: {source.get('snippet')}\n"
-    
     transcript += "\n### Full Text of Top Articles\n"
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_to_url = {executor.submit(fetch_and_parse_url, source['url']): source for source in unique_sources[:5]}
         for future in concurrent.futures.as_completed(future_to_url):
             source = future_to_url[future]
@@ -143,21 +129,16 @@ def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
             except Exception as e:
                 print(f"Failed to fetch/parse URL {source.get('url')}: {e}")
                 transcript += f"---\nSource URL: {source.get('url')}\nContent: FAILED TO FETCH ({e})\n---\n\n"
-
     return transcript, unique_sources
 
 def get_gemini_vetting(company_data: dict) -> dict:
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key: raise Exception("GEMINI_API_KEY not found")
-
-    company_name = company_data.get("organization", {}).get("name") # Get name, don't provide a default
-    
+    company_name = company_data.get("organization", {}).get("name")
     if not company_name or company_name == "Unknown Company":
         print(f"🚫 Skipping multi-agent research because no valid company name was found.")
-        # Return a result that marks the company as failed but doesn't crash the task
         return { "status": Status.FAILED.value, "investment_reasoning": "Failed to identify a valid company name during enrichment." }
     dossier = company_data.get("organization", {})
-    
     print(f"🕵️ Initializing multi-agent research for {company_name}...")
     research_topics = {
         "geography": [ f"'{company_name}' assets operations Ukraine", f"'{company_name}' oil and gas projects Africa", f"'{company_name}' energy investments South America", f"'{company_name}' Black Sea or Eastern Europe operations"],
@@ -165,12 +146,10 @@ def get_gemini_vetting(company_data: dict) -> dict:
         "russia": [ f"'{company_name}' russia involvement", f"'{company_name}' statement on Russian operations after February 2022", f"'{company_name}' russia sanctions", f"'{company_name}' russia assets"],
         "size": [ f"'{company_name}' number of employees", f"'{company_name}' revenue", f"'{company_name}' market size"]
     }
-    llm_args = {"model": "gemini-2.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
-    
+    llm_args = {"model": "gemini-1.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(research_topics)) as executor:
         future_to_topic = {executor.submit(conduct_targeted_research, queries): topic for topic, queries in research_topics.items()}
         topic_results = {future_to_topic[future]: future.result() for future in concurrent.futures.as_completed(future_to_topic)}
-
     prompts = {
         "geography": (GeographyAnalysis, f"""
     You are a geopolitical risk analyst. Your task is to analyze the company's geographical footprint based on the provided research. **You must completely disregard any information related to Russia for this analysis.** . If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
@@ -283,99 +262,65 @@ def get_gemini_vetting(company_data: dict) -> dict:
     --- END RESEARCH ---
     """
     final_analysis = final_llm.invoke(final_prompt)
-
     final_results = {}
     for topic, analysis_model in all_results.items():
         final_results.update(analysis_model.dict())
     final_results.update(final_analysis.dict())
-    
     final_results['geography_sources'] = topic_results['geography'][1]
     final_results['industry_sources'] = topic_results['industry'][1]
     final_results['russia_sources'] = topic_results['russia'][1]
     final_results['size_sources'] = topic_results['size'][1]
-
     weights = {'geography': 0.33, 'industry': 0.33, 'russia': 0.17, 'size': 0.17}
     unified_score = sum(final_results.get(f'{topic}_score', 0) * weight for topic, weight in weights.items())
     final_results['unified_score'] = round(unified_score, 2)
-    
     print(f"🎉 Vetting Complete for {company_name}!")
     return final_results
 
 def vet_single_company(company: dict, supabase: Client) -> dict | None:
-    try:
-        supabase.table('companies').update({'status': Status.VETTING.value}).eq('id', company['id']).execute()
-        
-        # --- MODIFIED: ADDED FALLBACK LOGIC ---
-        apollo_data = get_apollo_enrichment(company['domain'])
+    supabase.table('companies').update({'status': Status.VETTING.value}).eq('id', company['id']).execute()
+    apollo_data = get_apollo_enrichment(company['domain'])
+    if not apollo_data or not apollo_data.get("organization"):
+        apollo_data = get_gemini_enrichment_basic(company['domain'])
         if not apollo_data or not apollo_data.get("organization"):
-            apollo_data = get_gemini_enrichment_basic(company['domain'])
-            if not apollo_data or not apollo_data.get("organization"):
-                 raise Exception("Primary (Apollo) and fallback (Gemini) enrichment failed.")
-        # --- END OF MODIFICATION ---
-        
-        vetting_results = get_gemini_vetting(apollo_data)
-        org_data = apollo_data.get("organization", {})
-        update_data = {
-            "name": org_data.get("name", company['domain']),
-            "status": Status.VETTED.value,
-            "apollo_data": apollo_data,
-            "website_url": org_data.get("website_url"),
-            "company_linkedin_url": org_data.get("linkedin_url"),
-            **vetting_results
-        }
-        update_response = supabase.table('companies').update(update_data).eq('id', company['id']).execute()
-        return update_response.data[0] if update_response.data else None
-    # NEW: Catch SoftTimeLimitExceeded to allow for retries
-    except SoftTimeLimitExceeded:
-        print(f"Vetting for {company['domain']} timed out. Task will be retried.")
-        # Re-raise the exception to trigger Celery's retry mechanism
-        raise
-    except Exception as e:
-        print(f"Failed to vet {company['domain']}: {e}")
-        supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company['id']).execute()
-        return None
-# --- Celery Task Definition ---
+             raise Exception("Primary (Apollo) and fallback (Gemini) enrichment failed.")
+    vetting_results = get_gemini_vetting(apollo_data)
+    org_data = apollo_data.get("organization", {})
+    update_data = {
+        "name": org_data.get("name", company['domain']),
+        "status": Status.VETTED.value,
+        "apollo_data": apollo_data,
+        "website_url": org_data.get("website_url"),
+        "company_linkedin_url": org_data.get("linkedin_url"),
+        **vetting_results
+    }
+    update_response = supabase.table('companies').update(update_data).eq('id', company['id']).execute()
+    return update_response.data[0] if update_response.data else None
 
-# NEW: Added retry logic and timeouts to the Celery task
 @celery_app.task(
     name='tasks.run_vetting_task',
     bind=True,
     max_retries=3,
-    soft_time_limit=1800, # 30 minutes
-    time_limit=1900      # ~31 minutes
+    soft_time_limit=1800,
+    time_limit=1900
 )
 def run_vetting_task(self, company_ids: list[int]):
-    """
-    Main Celery task. Iterates through companies and isolates failures
-    to prevent the entire task from crashing.
-    """
     print(f"Celery task started: Vetting {len(company_ids)} companies.")
     supabase = get_supabase_client()
     vetted_count = 0
-    
-    # --- THIS IS THE KEY CHANGE ---
     for company_id in company_ids:
         try:
-            # Each company is processed in its own try/except block
             company_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
             if company_res.data:
                 result = vet_single_company(company_res.data, supabase)
                 if result:
                     vetted_count += 1
         except SoftTimeLimitExceeded:
-            # This will be caught if a single company takes too long
             print(f"Soft time limit exceeded for company ID {company_id}. Marking as failed and moving on.")
             supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company_id).execute()
-            # Continue to the next company in the loop
             continue
         except Exception as e:
-            # This will catch any other error (SSL, connection, etc.) for a single company
             print(f"Error vetting company ID {company_id} in Celery task: {e}")
-            # Mark the specific company as failed
             supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company_id).execute()
-            # Continue to the next company in the loop
             continue
-    # --- END OF CHANGE ---
-
     print(f"Celery task finished: Successfully processed {vetted_count} of {len(company_ids)} companies.")
     return f"Successfully vetted {vetted_count} of {len(company_ids)} companies."
