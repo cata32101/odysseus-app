@@ -11,7 +11,10 @@ from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import ssl
+from urllib3.exceptions import InsecureRequestWarning
 
+
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 load_dotenv()
 

@@ -184,7 +184,7 @@ def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supab
 @app.post("/companies/vet", status_code=202, dependencies=[Depends(get_current_user)])
 def vet_new_companies(req: VetCompaniesRequest):
     # NEW: Split large vetting requests into smaller chunks
-    chunk_size = 10
+    chunk_size = 3
     company_ids_chunks = [req.company_ids[i:i + chunk_size] for i in range(0, len(req.company_ids), chunk_size)]
     
     for chunk in company_ids_chunks:
@@ -231,7 +231,7 @@ def retry_failed_companies(supabase: Client = Depends(get_supabase)):
         failed_company_ids = [c['id'] for c in failed_companies_res.data]
         
         # NEW: Also chunk the retry mechanism
-        chunk_size = 10
+        chunk_size = 3
         company_ids_chunks = [failed_company_ids[i:i + chunk_size] for i in range(0, len(failed_company_ids), chunk_size)]
 
         for chunk in company_ids_chunks:

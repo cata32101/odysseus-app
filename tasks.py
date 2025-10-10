@@ -59,10 +59,7 @@ def get_supabase_client() -> Client:
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     
-    # --- FINAL, ROBUST FIX ---
-    # 1. Create an httpx client with the proxy configured.
-    proxies = {'http://': proxy_url, 'https://': proxy_url}
-    transport = httpx.Proxy(proxies=proxies)
+    transport = httpx.Proxy(proxy_url) #
     
     # 2. Pass the custom httpx client directly to the Supabase client.
     # This ensures all requests from this client go through the proxy.
@@ -364,8 +361,8 @@ def vet_single_company(company: dict, supabase: Client) -> dict | None:
     name='tasks.run_vetting_task',
     bind=True,
     max_retries=3,
-    soft_time_limit=1800,
-    time_limit=1900
+    soft_time_limit=2000,
+    time_limit=2500
 )
 def run_vetting_task(self, company_ids: list[int]):
     print(f"Celery task started: Vetting {len(company_ids)} companies.")
