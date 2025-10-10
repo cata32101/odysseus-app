@@ -61,7 +61,7 @@ def get_supabase_client() -> Client:
     # --- ** FIX: Use the correct structure for passing proxy options ** ---
     # The Supabase client uses httpx under the hood, and we need to pass options to it.
     # This is the correct format for the latest version of the library.
-    opts = ClientOptions().replace(postgrest_client_options={'proxies': proxies})
+    opts = ClientOptions(postgrest_client_options={'proxies': proxies})
     
     return create_client(SUPABASE_URL, SUPABASE_KEY, options=opts)
 
