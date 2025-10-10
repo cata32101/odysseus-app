@@ -1,5 +1,13 @@
 # odysseus-app/utils.py
 
+
+#### SSL fix###
+try:
+    import urllib3.contrib.pyopenssl
+    urllib3.contrib.pyopenssl.inject_into_urllib3()
+except ImportError:
+    print("Warning: pyopenssl not found. SSL errors may occur.")
+
 import os
 import json
 import requests

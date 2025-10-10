@@ -11,3 +11,6 @@ gunicorn
 celery
 redis
 gevent
+pyopenssl
+cryptography
+idna
