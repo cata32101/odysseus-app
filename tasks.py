@@ -61,7 +61,7 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        # --- FIX: Sanitize the domain to remove protocols and paths ---
+        # --- FIX 1: Robustly sanitize the domain input before making the API call ---
         if "http" in domain:
             clean_domain = urlparse(domain).netloc
         else:
@@ -73,6 +73,7 @@ def get_apollo_enrichment(domain: str) -> dict | None:
             
         # NEW FIX: Remove trailing dots, slashes, or other junk characters
         clean_domain = clean_domain.strip().strip('./')
+        # -------------------------------------------------------------------------
 
         api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={clean_domain}"
         
@@ -88,12 +89,13 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         
         response_data = response.json()
 
-        # --- FIX: Clean up the organization's linkedin_url to remove any trailing periods ---
+        # --- FIX 2: Clean up the organization's linkedin_url from the Apollo response ---
         organization_data = response_data.get('organization')
         if organization_data:
             linkedin_url = organization_data.get('linkedin_url')
             if linkedin_url and isinstance(linkedin_url, str) and linkedin_url.endswith('.'):
                 organization_data['linkedin_url'] = linkedin_url.rstrip('.')
+        # -------------------------------------------------------------------------
 
         return response_data
     except Exception as e:
