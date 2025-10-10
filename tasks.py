@@ -13,14 +13,12 @@ from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
 from dotenv import load_dotenv
 import requests
-from supabase import create_client, Client, ClientOptions
+from supabase import create_client, Client
 from langchain_google_genai import ChatGoogleGenerativeAI
 import time
-from urllib.parse import urlparse
-import httpx
 
 # Import the centralized request function from utils
-from utils import make_request_with_proxy, fetch_and_parse_url, brightdata_search
+from utils import fetch_and_parse_url, brightdata_search
 from models import (
     GeographyAnalysis, IndustryAnalysis, RussiaAnalysis, SizeAnalysis, FinalAnalysis, Status
 )
@@ -42,17 +40,14 @@ celery_app = Celery(
 
 # --- CORRECTED HELPER FUNCTIONS ---
 def get_supabase_client() -> Client:
-    """Creates a Supabase client that routes all its traffic through the Bright Data proxy."""
+    """Creates a new Supabase client instance for the Celery worker."""
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Supabase URL/Key not configured for Celery worker.")
     
-    # Pass the configured httpx client via ClientOptions (replaces postgrest_client_options)
-    return create_client(
-        SUPABASE_URL, 
-        SUPABASE_KEY
-    )
+    # Create a direct Supabase client without the proxy
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_apollo_enrichment(domain: str) -> dict | None:
     apollo_api_key = os.getenv("APOLLO_API_KEY")
@@ -65,17 +60,15 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         clean_domain = domain.strip()
         
         # 2. Remove any trailing junk characters like '.' or '/'
-        #    This is the crucial step that fixes the issue.
         clean_domain = clean_domain.strip('./')
         # ------------------------------------
 
-        # Optional: Add a log to confirm the cleaned domain
         print(f"📡 Fetching Apollo data for cleaned domain: {clean_domain}")
 
         response = requests.get(
             "https://api.apollo.io/v1/organizations/enrich",
             headers={"X-Api-Key": apollo_api_key, 'Content-Type': 'application/json'},
-            params={"domain": clean_domain},  # Pass the cleaned domain here
+            params={"domain": clean_domain},
             timeout=15
         )
         response.raise_for_status()
@@ -95,36 +88,24 @@ def get_gemini_enrichment_basic(domain: str) -> dict | None:
         print("ERROR: GEMINI_API_KEY not found for fallback.")
         return None
 
-    # --- FIX: Use a more stable and widely available model ---
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key)
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=gemini_api_key)
     
-    # Conduct a simple search to get context for the LLM
     transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
     
-    # A more detailed prompt to ensure the model returns only JSON
     prompt = f"""
-    Analyze the following web search transcript for the domain "{domain}".
-    Your task is to extract the company's official name and its official LinkedIn URL.
-    
+    Based on the following web search transcript for the domain "{domain}", extract the company's official name and its official LinkedIn URL.
     Research Transcript:
-    ---
     {transcript}
-    ---
 
-    You MUST respond with a valid JSON object. Do not include any other text, markdown, or explanations.
-    The JSON object should contain "name" and "linkedin_url" as keys.
-    If a value cannot be confidently determined from the text, return null for that key.
-
-    Example of a perfect response:
-    {{"name": "Example Corp", "linkedin_url": "https://www.linkedin.com/company/example"}}
+    Respond with a JSON object containing "name" and "linkedin_url".
+    If a value cannot be confidently determined, return null for that key.
+    Example response: {{"name": "Example Corp", "linkedin_url": "https://www.linkedin.com/company/example"}}
     """
     
-    # --- FIX: Add a robust retry loop and better error handling ---
     for attempt in range(3):
         try:
             response_content = llm.invoke(prompt).content
             
-            # Clean the response to extract only the JSON part
             if '```json' in response_content:
                 clean_response = response_content.split('```json')[1].split('```')[0].strip()
             else:
@@ -132,11 +113,10 @@ def get_gemini_enrichment_basic(domain: str) -> dict | None:
 
             if not clean_response:
                 print(f"Attempt {attempt + 1}/3: Gemini returned an empty response for {domain}.")
-                time.sleep(2 * (attempt + 1)) # Exponential backoff
+                time.sleep(2 * (attempt + 1))
                 continue
 
             data = json.loads(clean_response)
-            # Ensure we return a dictionary in the expected format
             return {"organization": {"name": data.get("name"), "linkedin_url": data.get("linkedin_url")}}
 
         except json.JSONDecodeError:
@@ -147,7 +127,7 @@ def get_gemini_enrichment_basic(domain: str) -> dict | None:
             time.sleep(2 * (attempt + 1))
             
     print(f"CRITICAL: All Gemini fallback attempts failed for {domain}.")
-    return None # Return None after all retries have failed
+    return None
 
 def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
     topic_sources = []
@@ -178,10 +158,7 @@ def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
 def get_gemini_vetting(company_data: dict) -> dict:
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key: raise Exception("GEMINI_API_KEY not found")
-    company_name = company_data.get("organization", {}).get("name")
-    if not company_name or company_name == "Unknown Company":
-        print(f"🚫 Skipping multi-agent research because no valid company name was found.")
-        return { "status": Status.FAILED.value, "investment_reasoning": "Failed to identify a valid company name during enrichment." }
+    company_name = company_data.get("organization", {}).get("name", "Unknown Company")
     dossier = company_data.get("organization", {})
     print(f"🕵️ Initializing multi-agent research for {company_name}...")
     research_topics = {
@@ -190,66 +167,86 @@ def get_gemini_vetting(company_data: dict) -> dict:
         "russia": [ f"'{company_name}' russia involvement", f"'{company_name}' statement on Russian operations after February 2022", f"'{company_name}' russia sanctions", f"'{company_name}' russia assets"],
         "size": [ f"'{company_name}' number of employees", f"'{company_name}' revenue", f"'{company_name}' market size"]
     }
-    llm_args = {"model": "gemini-2.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
+    llm_args = {"model": "gemini-1.5-flash", "google_api_key": gemini_api_key, "temperature": 0.2}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(research_topics)) as executor:
         future_to_topic = {executor.submit(conduct_targeted_research, queries): topic for topic, queries in research_topics.items()}
         topic_results = {future_to_topic[future]: future.result() for future in concurrent.futures.as_completed(future_to_topic)}
     prompts = {
         "geography": (GeographyAnalysis, f"""
-    You are a geopolitical risk analyst. Your task is to analyze the company's geographical footprint based on the provided research. **You must completely disregard any information related to Russia for this analysis.** . If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
-    - **Scoring Rubric (0-10):**
-      - **10:** Active, direct investments or assets in Ukraine. 
-      - **9:** Past or minority investments in Ukraine, or indirect supply-chain reliance.
-      - **8:** Investments specifically in countries bordering Ukraine (Poland, Slovakia, Hungary, Moldova).
-      - **7:** Exposure in Central/Eastern Europe closer to Ukraine (e.g., Romania, Baltics, Balkans).
-      - **6:** Substantial portfolio in high-risk/frontier markets (MENA, Sub-Saharan Africa, South Asia).
-      - **5:** Active business in Middle East / North Africa (e.g., Egypt, Israel, Iraq, Nigeria).
-      - **4:** Moderate emerging market exposure (e.g., Turkey, Mexico, Brazil, South Africa).
-      - **3:** Exposure across multiple stable European countries (Western & Southern).
-      - **2:** Investments in major Western European economies only (Germany, France, UK, Nordics).
-      - **1:** Very safe global footprint with minor exposure to stable Asia-Pacific or Latin American countries.
-      - **0:** Ultra-safe investments only in highly stable, distant countries (e.g., Canada, US, Australia, NZ, Japan).
-    - **Output:** You MUST respond with a valid JSON object containing `geography_score` and `geography_reasoning`. Briefly state the source of the information.
+    You are a geopolitical risk analyst.
+Your task is to analyze the company's geographical footprint based on the provided research.
+**You must completely disregard any information related to Russia for this analysis.** .
+If irrelevant information on other companies and topics is present, ignore it.
+your goal is to analyze the company **{company_name}**, thats all.
+- **Scoring Rubric (0-10):**
+      - **10:** Active, direct investments or assets in Ukraine.
+- **9:** Past or minority investments in Ukraine, or indirect supply-chain reliance.
+- **8:** Investments specifically in countries bordering Ukraine (Poland, Slovakia, Hungary, Moldova).
+- **7:** Exposure in Central/Eastern Europe closer to Ukraine (e.g., Romania, Baltics, Balkans).
+- **6:** Substantial portfolio in high-risk/frontier markets (MENA, Sub-Saharan Africa, South Asia).
+- **5:** Active business in Middle East / North Africa (e.g., Egypt, Israel, Iraq, Nigeria).
+- **4:** Moderate emerging market exposure (e.g., Turkey, Mexico, Brazil, South Africa).
+- **3:** Exposure across multiple stable European countries (Western & Southern).
+- **2:** Investments in major Western European economies only (Germany, France, UK, Nordics).
+- **1:** Very safe global footprint with minor exposure to stable Asia-Pacific or Latin American countries.
+- **0:** Ultra-safe investments only in highly stable, distant countries (e.g., Canada, US, Australia, NZ, Japan).
+- **Output:** You MUST respond with a valid JSON object containing `geography_score` and `geography_reasoning`.
+Cite URLs from the transcript in your reasoning.
     """),
         "industry": (IndustryAnalysis, f"""
     You are a seasoned partnership consultant and analyst with deep expertise in the upstream oil and gas sector.
-    Evaluate how well the company aligns with our primary investment thesis using the following scoring rubric. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
-    - **Scoring Rubric (0-10):**
-      - **10:** (Profile A) Owners of operational and producing oil fields. OR (Profile B) Opportunistic/risk-seeking capital (hedge funds, PE, sovereign wealth funds known for high-risk/high-return investments).
-      - **9:** Operational and producing gas fields. Relevant but secondary to oil.
-      - **8:** Exploration/development of oil fields (non-producing or not yet producing).
+Evaluate how well the company aligns with our primary investment thesis using the following scoring rubric.
+If irrelevant information on other companies and topics is present, ignore it.
+your goal is to analyze the company **{company_name}**, thats all.
+- **Scoring Rubric (0-10):**
+      - **10:** (Profile A) Owners of operational and producing oil fields.
+OR (Profile B) Opportunistic/risk-seeking capital (hedge funds, PE, sovereign wealth funds known for high-risk/high-return investments).
+- **9:** Operational and producing gas fields. Relevant but secondary to oil.
+- **8:** Exploration/development of oil fields (non-producing or not yet producing).
       - **7:** Exploration/development of natural gas fields (non-producing).
-      - **6:** Midstream operators (pipelines, terminals, storage).
+- **6:** Midstream operators (pipelines, terminals, storage).
       - **5:** Downstream operators (refineries, petrochemicals, retail).
-      - **4:** Energy trading houses with hydrocarbon exposure.
+- **4:** Energy trading houses with hydrocarbon exposure.
       - **3:** Renewables & Utilities (wind, solar, grids).
-      - **2:** Energy service firms (EPC, oilfield services, equipment suppliers).
-      - **1:** Diversified investors with no active energy involvement (e.g., family offices, conglomerates).
-      - **0:** No alignment (consumer, retail, software, finance-only).
-    - **Output:** You MUST respond with a valid JSON object containing `industry_score` and `industry_reasoning`. Briefly state the source of the information.
+- **2:** Energy service firms (EPC, oilfield services, equipment suppliers).
+- **1:** Diversified investors with no active energy involvement (e.g., family offices, conglomerates).
+- **0:** No alignment (consumer, retail, software, finance-only).
+    - **Output:** You MUST respond with a valid JSON object containing `industry_score` and `industry_reasoning`.
+Cite URLs from the transcript in your reasoning.
     """),
         "russia": (RussiaAnalysis, f"""
     You are a compliance officer specializing in international sanctions against Russia.
-    Assess the company's ties to Russia using the detailed scoring rubric below, distinguishing between pre- and post-February 2022 activities. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
-    - **Scoring Rubric (0-10):**
+Assess the company's ties to Russia using the detailed scoring rubric below, distinguishing between pre- and post-February 2022 activities.
+If irrelevant information on other companies and topics is present, ignore it.
+your goal is to analyze the company **{company_name}**, thats all.
+- **Scoring Rubric (0-10):**
       - **10:** No ties. Never operated, invested, or licensed in Russia.
-      - **9:** Historic ties, but fully exited *before* Feb 24, 2022.
-      - **8:** Immediate 2022 exit. Announced and executed full exit by March 31, 2022.
-      - **7:** Prompt 2022 exit. Completed by June 30, 2022.
-      - **6:** Late 2022 exit. Completed in the second half of 2022 (July–Dec).
+- **9:** Historic ties, but fully exited *before* Feb 24, 2022.
+      - **8:** Immediate 2022 exit.
+Announced and executed full exit by March 31, 2022.
+      - **7:** Prompt 2022 exit.
+Completed by June 30, 2022.
+      - **6:** Late 2022 exit.
+Completed in the second half of 2022 (Julyâ€“Dec).
       - **5:** 2023 exit. Suspended in 2022, but full exit not completed until 2023.
       - **4:** Late exit / still winding down. Exit process ongoing into 2023-2025.
       - **3:** Partial presence continues. No full exit; franchises, licensing, or JVs remain.
       - **2:** Substantial ongoing presence. Significant business continues, no commitment to a full exit.
       - **1:** Major ongoing presence. Russia remains a key market or asset hub.
+ 
       - **0:** Fully embedded. Russian state-owned, based, or actively expanding post-2022.
-    - **Output:** You MUST respond with a valid JSON object containing `russia_score` and `russia_reasoning`. Briefly state the source of the information.
+    - **Output:** You MUST respond with a valid JSON object containing `russia_score` and `russia_reasoning`. Cite URLs from the transcript in your reasoning.
     """),
         "size": (SizeAnalysis, f"""
     You are an analyst sourcing mid-sized companies for potential partnerships.
-    Evaluate the company's size based on employee count and revenue from the dossier and research. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
-    - **Scoring (0-10):** 10 for an ideal mid-market size (50-5000 employees). Score lower for companies that are too small (<10) or too large (>10,000), however a large company is still better than a very small one. a large corporation with 25 thousand should get a 1-2. Also take revenue into account, for example 50 employees but large revenue for their size is a score improvement.
-    - **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`. Briefly state the source of the information.
+    Evaluate the company's size based on employee count and revenue from the dossier and research. If irrelevant information on other companies and topics is present, ignore it.
+your goal is to analyze the company **{company_name}**, thats all.
+- **Scoring (0-10):** 10 for an ideal mid-market size (50-5000 employees).
+Score lower for companies that are too small (<10) or too large (>10,000), however a large company is still better than a very small one.
+a large corporation with 25 thousand should get a 1-2.
+Also take revenue into account, for example 50 employees but large revenue for their size is a score improvement.
+- **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`.
+Cite URLs from the transcript in your reasoning.
     """)
     }
     all_results = {}
@@ -258,7 +255,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
         for topic, (model, prompt_template) in prompts.items():
             llm = ChatGoogleGenerativeAI(**llm_args).with_structured_output(model)
             transcript, _ = topic_results[topic]
-            prompt = f"{prompt_template}\n\n**Company Name:** {company_name}\n**Research Transcript:**\n{transcript}"
+            prompt = f"{prompt_template}\n\n**Company Name:** {company_name}\n**Research Transcript:**\n{transcript}\n"
             if topic == 'size': prompt += f"\n**Dossier:** {json.dumps(dossier)}"
             future_to_topic[executor.submit(llm.invoke, prompt)] = topic
         for future in concurrent.futures.as_completed(future_to_topic):
@@ -271,20 +268,21 @@ def get_gemini_vetting(company_data: dict) -> dict:
     print("✍️ Synthesizing final analysis...")
     final_llm = ChatGoogleGenerativeAI(**llm_args).with_structured_output(FinalAnalysis)
     final_prompt = f"""
-    You are a senior analyst synthesizing research for a Ukrainian upstream oil and gas asset management firm. Your sole focus is to find potential partners or potential investors in the upstream oil and gas sector.
-    Based ONLY on the provided research transcript and dossier for **{company_name}**, generate a final, holistic profile.
-
-    **Primary Investment Thesis:** We are looking for partners who are EITHER **investment firms, funds or offices with primary portfolio of upstream oil and gas sector** OR **operators of upstream oil and gas assets**. Our ideal partner is a **mid-sized company (50-5,000 employees)** with a focus on **geopolitically high-risk regions (e.g., Africa, South America, Eastern Europe)**, and has **no ties to Russia**.
-
-    **Instructions for 'investment_reasoning':**
-    1.  **Strictly adhere to the provided text.** Do not use outside knowledge. If the text doesn't support a conclusion, state that the information is not available.
-    2.  Start your reasoning with "Yes", "No", or "Depends".
-    3.  **"No":** Immediately say "No" if the company is completely irrelevant (e.g., a software or retail company with no energy assets). 
-    4.  **"Depends":** Use "Depends" for companies that meet some but not all criteria (e.g., they are in the right industry but the wrong size, or they are upstream but in a different geography, or they meet all criteria but: have ties with russia,  are a huge conglomerate). Explain the nuance clearly.
+    You are a senior analyst synthesizing research for a Ukrainian upstream oil and gas asset management firm.
+Your sole focus is to find potential partners or potential investors in the upstream oil and gas sector.
+Based ONLY on the provided research transcript and dossier for **{company_name}**, generate a final, holistic profile.
+**Primary Investment Thesis:** We are looking for partners who are EITHER **investment firms, funds or offices with primary portfolio of upstream oil and gas sector** OR **operators of upstream oil and gas assets**.
+Our ideal partner is a **mid-sized company (50-5,000 employees)** with a focus on **geopolitically high-risk regions (e.g., Africa, South America, Eastern Europe)**, and has **no ties to Russia**.
+**Instructions for 'investment_reasoning':**
+    1.  **Strictly adhere to the provided text.** Do not use outside knowledge.
+If the text doesn't support a conclusion, state that the information is not available.
+2.  Start your reasoning with "Yes", "No", or "Depends".
+3.  **"No":** Immediately say "No" if the company is completely irrelevant (e.g., a software or retail company with no energy assets).
+4.  **"Depends":** Use "Depends" for companies that meet some but not all criteria (e.g., they are in the right industry but the wrong size, or they are upstream but in a different geography, or they meet all criteria but: have ties with russia,  are a huge conglomerate).
+Explain the nuance clearly.
     5.  **"Yes":** Only say "Yes" if the company is a strong fit across the majority of the criteria (Upstream Oil & Gas, Mid-Sized, High-Risk Geographies, No Russia Ties).
-
-    **Company Name:** {company_name}
-    **Dossier:** {json.dumps(dossier)}
+**Company Name:** {company_name}
+    **Dossier:** {json.dumps(dossier)}[
 
     --- RESEARCH TRANSCRIPTS (Use ONLY this information) ---
     Geography Research:
@@ -339,10 +337,15 @@ def vet_single_company(company: dict, supabase: Client) -> dict | None:
     name='tasks.run_vetting_task',
     bind=True,
     max_retries=3,
-    soft_time_limit=2000,
-    time_limit=2500
+    soft_time_limit=1800,
+    time_limit=2000
 )
 def run_vetting_task(self, company_ids: list[int]):
+    """
+    This is the main Celery task that will be run by the worker.
+    It iterates through companies one by one to keep memory low.
+    It now includes automatic retries with exponential backoff.
+    """
     print(f"Celery task started: Vetting {len(company_ids)} companies.")
     supabase = get_supabase_client()
     vetted_count = 0
@@ -350,16 +353,14 @@ def run_vetting_task(self, company_ids: list[int]):
         try:
             company_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
             if company_res.data:
-                result = vet_single_company(company_res.data, supabase)
-                if result:
-                    vetted_count += 1
-        except SoftTimeLimitExceeded:
-            print(f"Soft time limit exceeded for company ID {company_id}. Marking as failed and moving on.")
-            supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company_id).execute()
-            continue
+                vet_single_company(company_res.data, supabase)
+                vetted_count += 1
+        except SoftTimeLimitExceeded as exc:
+            print(f"Soft time limit exceeded for company ID {company_id}. Retrying task.")
+            self.retry(exc=exc, countdown=60 * self.request.retries)
         except Exception as e:
             print(f"Error vetting company ID {company_id} in Celery task: {e}")
             supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company_id).execute()
             continue
-    print(f"Celery task finished: Successfully processed {vetted_count} of {len(company_ids)} companies.")
+    print(f"Celery task finished: Successfully vetted {vetted_count} of {len(company_ids)} companies.")
     return f"Successfully vetted {vetted_count} of {len(company_ids)} companies."
