@@ -61,7 +61,7 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        # --- FIX 1: Robustly sanitize the domain input before making the API call ---
+        # --- FIX 1 (Input Domain Cleaning): Robustly sanitize the domain input ---
         if "http" in domain:
             clean_domain = urlparse(domain).netloc
         else:
@@ -84,12 +84,15 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         apollo_headers = {"X-Api-Key": apollo_api_key}
             
         print(f"📡 Fetching Apollo data via Unlocker Proxy for: {clean_domain}")
-        # response = make_request_with_proxy(api_url, zone=unlocker_zone, extra_headers=apollo_headers)
+        # The request is made directly, bypassing the make_request_with_proxy retry logic
         response = requests.get(api_url, headers=apollo_headers, timeout=60, verify=False)
+        
+        # --- FIX 3 (Robustness): Check for HTTP status code errors before trying to parse JSON ---
+        response.raise_for_status() 
         
         response_data = response.json()
 
-        # --- FIX 2: Clean up the organization's linkedin_url from the Apollo response ---
+        # --- FIX 2 (Output URL Cleaning): Clean up the organization's linkedin_url ---
         organization_data = response_data.get('organization')
         if organization_data:
             linkedin_url = organization_data.get('linkedin_url')
