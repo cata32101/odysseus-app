@@ -1,4 +1,12 @@
 # odysseus-app/tasks.py
+
+try:
+    import urllib3.contrib.pyopenssl
+    urllib3.contrib.pyopenssl.inject_into_urllib3()
+except ImportError:
+    print("Warning: pyopenssl not found. SSL errors may occur.")
+
+
 import os
 import json
 import concurrent.futures
@@ -331,38 +339,43 @@ def vet_single_company(company: dict, supabase: Client) -> dict | None:
 # NEW: Added retry logic and timeouts to the Celery task
 @celery_app.task(
     name='tasks.run_vetting_task',
-    bind=True,  # Binds the task instance to the function
-    max_retries=3,  # Maximum number of retries
-    soft_time_limit=1000,  # 8-minute soft time limit for each task run
-    time_limit=1800  # 11-minute hard time limit
+    bind=True,
+    max_retries=3,
+    soft_time_limit=1800, # 30 minutes
+    time_limit=1900      # ~31 minutes
 )
 def run_vetting_task(self, company_ids: list[int]):
     """
-    This is the main Celery task that will be run by the worker.
-    It iterates through companies one by one to keep memory low.
-    It now includes automatic retries with exponential backoff.
+    Main Celery task. Iterates through companies and isolates failures
+    to prevent the entire task from crashing.
     """
     print(f"Celery task started: Vetting {len(company_ids)} companies.")
-    # Each task run gets its own Supabase client.
     supabase = get_supabase_client()
     vetted_count = 0
     
+    # --- THIS IS THE KEY CHANGE ---
     for company_id in company_ids:
         try:
-            # Fetch the company data inside the task
+            # Each company is processed in its own try/except block
             company_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
             if company_res.data:
                 result = vet_single_company(company_res.data, supabase)
                 if result:
                     vetted_count += 1
         except SoftTimeLimitExceeded:
-            print(f"Soft time limit exceeded for company ID {company_id}. Retrying task.")
-            # Retry the entire task with the remaining company IDs
-            raise self.retry(exc=SoftTimeLimitExceeded, countdown=60 * self.request.retries)
-        except Exception as e:
-            print(f"Error vetting company ID {company_id} in Celery task: {e}")
-            # Optionally, you can update the status to FAILED here as well
+            # This will be caught if a single company takes too long
+            print(f"Soft time limit exceeded for company ID {company_id}. Marking as failed and moving on.")
             supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company_id).execute()
+            # Continue to the next company in the loop
+            continue
+        except Exception as e:
+            # This will catch any other error (SSL, connection, etc.) for a single company
+            print(f"Error vetting company ID {company_id} in Celery task: {e}")
+            # Mark the specific company as failed
+            supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company_id).execute()
+            # Continue to the next company in the loop
+            continue
+    # --- END OF CHANGE ---
 
-    print(f"Celery task finished: Successfully vetted {vetted_count} companies.")
+    print(f"Celery task finished: Successfully processed {vetted_count} of {len(company_ids)} companies.")
     return f"Successfully vetted {vetted_count} of {len(company_ids)} companies."
