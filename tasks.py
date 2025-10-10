@@ -59,17 +59,19 @@ def get_supabase_client() -> Client:
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     
-    transport = httpx.Proxy(proxy_url) #
+    # FIX 1: Create an httpx.Proxy instance (from httpx import Proxy)
+    transport = httpx.Proxy(proxy_url)
     
-    # 2. Pass the custom httpx client directly to the Supabase client.
-    # This ensures all requests from this client go through the proxy.
+    # FIX 2: Create a synchronous httpx.Client configured with the transport
+    # Note: verify=False is often required when routing through a proxy
+    httpx_client = httpx.Client(transport=transport, verify=False) 
+
+    # FIX 3: Pass the configured httpx client via ClientOptions (replaces postgrest_client_options)
     return create_client(
         SUPABASE_URL, 
         SUPABASE_KEY,
         options=ClientOptions(
-            postgrest_client_options={
-                "transport": transport
-            }
+            httpx_client=httpx_client # <-- This is the correct argument
         )
     )
 
