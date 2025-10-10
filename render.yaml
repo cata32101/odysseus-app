@@ -13,7 +13,7 @@ services:
     runtime: python
     plan: starter 
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn main:app --worker-class uvicorn.workers.UvicornWorker"
+    startCommand: "gunicorn main:app --workers 8 --worker-class uvicorn.workers.UvicornWorker"
     envVars:
       - key: REDIS_URL
         fromService:

@@ -84,7 +84,7 @@ def get_apollo_enrichment(domain: str) -> dict | None:
             
         print(f"📡 Fetching Apollo data via Unlocker Proxy for: {clean_domain}")
         # response = make_request_with_proxy(api_url, zone=unlocker_zone, extra_headers=apollo_headers)
-        response = requests.get(api_url, headers=apollo_headers, timeout=60)
+        response = requests.get(api_url, headers=apollo_headers, timeout=60, verify=False)
         
         return response.json()
     except Exception as e:

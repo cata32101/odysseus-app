@@ -85,7 +85,8 @@ def enrich_apollo_person(apollo_person_id: str) -> Optional[dict]:
             "https://api.apollo.io/v1/people/match",
             headers={"X-Api-Key": apollo_api_key, 'Content-Type': 'application/json'},
             json=params,
-            timeout=20
+            timeout=20,
+            verify=False
         )
         response.raise_for_status()
         return response.json()

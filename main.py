@@ -276,7 +276,7 @@ def search_apollo_contacts(organization_id: str, per_page: int = 8) -> list:
     }
 
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response = requests.post(url, headers=headers, json=data, timeout=30, verify=False)
         response.raise_for_status()
         return response.json().get("people", [])
     except requests.exceptions.RequestException as e:
