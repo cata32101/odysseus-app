@@ -107,7 +107,7 @@ def get_gemini_enrichment_basic(domain: str) -> dict | None:
         return None
 
     # --- FIX: Use a more stable and widely available model ---
-    llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=gemini_api_key)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key)
     
     # Conduct a simple search to get context for the LLM
     transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
