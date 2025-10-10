@@ -13,10 +13,9 @@ from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
 from dotenv import load_dotenv
 import requests
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions  # <-- ** ADDED ClientOptions IMPORT **
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Import the centralized request function from utils
 from utils import make_request_with_proxy, fetch_and_parse_url, brightdata_search
 from models import (
     GeographyAnalysis, IndustryAnalysis, RussiaAnalysis, SizeAnalysis, FinalAnalysis, Status
@@ -49,7 +48,6 @@ def get_supabase_client() -> Client:
     # --- PROXY CONFIGURATION FOR SUPABASE CLIENT ---
     customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
     proxy_password = os.getenv("BRIGHTDATA_PROXY_PASSWORD")
-    # Use the unlocker zone for general API traffic like this
     zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE") 
 
     if not all([customer_id, zone, proxy_password]):
@@ -59,7 +57,9 @@ def get_supabase_client() -> Client:
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:33335'
     proxies = {'http://': proxy_url, 'https://': proxy_url}
     
-    return create_client(SUPABASE_URL, SUPABASE_KEY, options={"proxies": proxies})
+    # --- ** FIX: Use ClientOptions to pass proxy settings ** ---
+    client_options = ClientOptions(proxies=proxies)
+    return create_client(SUPABASE_URL, SUPABASE_KEY, options=client_options)
 
 def get_apollo_enrichment(domain: str) -> dict | None:
     """Gets Apollo enrichment data, routing the request through the Bright Data proxy."""
@@ -68,15 +68,12 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        # Construct the API URL
         api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={domain}"
-        
         unlocker_zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
         if not unlocker_zone:
             raise Exception("BRIGHTDATA_UNLOCKER_ZONE is not set in environment variables.")
             
         print(f"📡 Fetching Apollo data via Unlocker Proxy for: {domain}")
-        # Make the request using the centralized proxy function
         response = make_request_with_proxy(api_url, zone=unlocker_zone)
         return response.json()
     except Exception as e:
