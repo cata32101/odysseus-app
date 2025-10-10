@@ -59,14 +59,16 @@ def get_supabase_client() -> Client:
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     
-    # FIX 1: Use httpx.Proxy to define the transport
-    transport = httpx.Proxy(proxy_url)
+    # FIX: Use the standard httpx 'proxies' dictionary. This resolves the AttributeError.
+    proxies = {
+        "http://": proxy_url,
+        "https://": proxy_url
+    }
     
-    # FIX 2: Create a synchronous httpx.Client configured with the transport
-    # We set verify=False to prevent certificate issues with the proxy
-    httpx_client = httpx.Client(transport=transport, verify=False) 
+    # Create the synchronous httpx.Client configured with the proxies
+    httpx_client = httpx.Client(proxies=proxies, verify=False) 
 
-    # FIX 3: Pass the configured httpx client via ClientOptions (replaces postgrest_client_options)
+    # Pass the configured httpx client via ClientOptions (replaces postgrest_client_options)
     return create_client(
         SUPABASE_URL, 
         SUPABASE_KEY,
