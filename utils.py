@@ -8,21 +8,11 @@ import warnings
 from supabase import create_client, Client
 from fastapi import Depends, HTTPException, Request
 from dotenv import load_dotenv
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import ssl
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 load_dotenv()
 
-class SSLAdapter(HTTPAdapter):
-    def init_poolmanager(self, *args, **kwargs):
-        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        context.set_ciphers('DEFAULT@SECLEVEL=1')
-        kwargs['ssl_context'] = context
-        return super(SSLAdapter, self).init_poolmanager(*args, **kwargs)
-
-# --- Supabase & Auth (No changes needed) ---
+# --- Supabase & Auth (No changes needed here) ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -45,41 +35,43 @@ async def get_current_user(request: Request, supabase: Client = Depends(get_supa
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-# --- CENTRALIZED & ROBUST REQUESTING LOGIC ---
-def make_request_with_proxy(target_url: str) -> requests.Response:
-    customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
-    zone = os.getenv("BRIGHTDATA_ZONE")
-    proxy_password = os.getenv("BRIGHTDATA_PROXY_PASSWORD")
+# --- CORRECTED HELPER FUNCTIONS ---
 
-    if not all([customer_id, zone, proxy_password]):
-        raise Exception("Crucial Bright Data environment variables (CUSTOMER_ID, ZONE, PROXY_PASSWORD) are not set.")
+def make_brightdata_request(target_url: str, zone: str) -> requests.Response:
+    """
+    Centralized function to make a direct API call to Bright Data,
+    specifying which zone to use.
+    """
+    api_key = os.getenv("BRIGHT_DATA_API_KEY")
+    if not api_key:
+        raise Exception("Error: BRIGHT_DATA_API_KEY is not set.")
 
-    proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
-    proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:33335' 
+    api_url = "https://api.brightdata.com/request"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    body = {"zone": zone, "url": target_url, "format": "raw"}
     
-    proxies = {'http': proxy_url, 'https': proxy_url}
-    
-    session = requests.Session()
-    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-    
-    session.mount('https://', SSLAdapter(max_retries=retries))
-    session.mount('http://', HTTPAdapter(max_retries=retries))
-
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-    
-    response = session.get(target_url, proxies=proxies, headers=headers, timeout=60, verify=False)
+    response = requests.post(api_url, json=body, headers=headers, timeout=60)
     response.raise_for_status()
     return response
 
 def fetch_and_parse_url(url: str) -> str:
+    """
+    Fetches a regular URL using the Bright Data 'Unlocker' zone.
+    """
     if not url or not url.startswith(('http://', 'https://')):
         return "Invalid URL provided."
     try:
-        print(f"📡 Fetching URL via Proxy: {url}")
-        response = make_request_with_proxy(url)
+        unlocker_zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
+        if not unlocker_zone:
+            raise Exception("BRIGHTDATA_UNLOCKER_ZONE environment variable is not set.")
+            
+        print(f"📡 Fetching URL via Unlocker Zone: {url}")
+        response = make_brightdata_request(url, zone=unlocker_zone)
+        
         soup = BeautifulSoup(response.text, 'lxml')
         for element in soup(["script", "style", "header", "footer", "nav", "aside", "form"]):
             element.decompose()
+        
         text = ' '.join(soup.stripped_strings)
         return text[:8000]
     except Exception as e:
@@ -88,10 +80,17 @@ def fetch_and_parse_url(url: str) -> str:
         return error_message
 
 def brightdata_search(query: str) -> list:
+    """
+    Performs a Google search using the Bright Data 'SERP API' zone.
+    """
     print(f"⚡️ Performing web search for: {query}")
     search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&gl=us&hl=en"
+    serp_zone = os.getenv("BRIGHTDATA_ZONE") # This is your 'serp_api1'
+    if not serp_zone:
+        raise Exception("BRIGHTDATA_ZONE for SERP API is not set.")
+        
     try:
-        response = make_request_with_proxy(search_url)
+        response = make_brightdata_request(search_url, zone=serp_zone)
         soup = BeautifulSoup(response.text, "lxml")
         results = []
         for result_div in soup.find_all('div', class_='tF2Cxc'):
