@@ -27,7 +27,7 @@ services:
     runtime: python
     plan: starter
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "celery -A tasks.celery_app worker --loglevel=info -P gevent -c 100" # <-- CHANGE THIS
+    startCommand: "celery -A tasks.celery_app worker --loglevel=info -P gevent -c 10" # <-- CHANGE THIS
     envVars:
       - key: REDIS_URL
         fromService:
