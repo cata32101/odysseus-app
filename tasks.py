@@ -83,13 +83,20 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print("APOLLO_API_KEY not found")
         return None
     try:
+        # --- FIX: The API key should NOT be in the URL ---
         api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={domain}"
+        
         unlocker_zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
         if not unlocker_zone:
             raise Exception("BRIGHTDATA_UNLOCKER_ZONE is not set in environment variables.")
+
+        # --- FIX: Pass the Apollo API Key in the correct header ---
+        apollo_headers = {"X-Api-Key": apollo_api_key}
             
         print(f"📡 Fetching Apollo data via Unlocker Proxy for: {domain}")
-        response = make_request_with_proxy(api_url, zone=unlocker_zone)
+        # Pass the headers to our updated request function
+        response = make_request_with_proxy(api_url, zone=unlocker_zone, extra_headers=apollo_headers)
+        
         return response.json()
     except Exception as e:
         print(f"Apollo API error for domain {domain}: {e}")
