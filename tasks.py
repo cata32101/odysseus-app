@@ -61,19 +61,23 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        # --- FIX 1 (Input Domain Cleaning): Robustly sanitize the domain input ---
-        if "http" in domain:
-            clean_domain = urlparse(domain).netloc
-        else:
-            clean_domain = domain.split('/')[0]
+        # --- MORE ROBUST DOMAIN CLEANING ---
+        # 1. Start by stripping all leading/trailing whitespace.
+        clean_domain = domain.strip()
         
-        # Remove 'www.' if it exists
+        # 2. Handle http/https prefixes.
+        if "http" in clean_domain:
+            clean_domain = urlparse(clean_domain).netloc
+        else:
+            clean_domain = clean_domain.split('/')[0]
+        
+        # 3. Now, safely check for and remove 'www.'
         if clean_domain.startswith('www.'):
             clean_domain = clean_domain[4:]
             
-        # NEW FIX: Remove trailing dots, slashes, or other junk characters
-        clean_domain = clean_domain.strip().strip('./')
-        # -------------------------------------------------------------------------
+        # 4. Finally, remove any remaining junk characters from the edges.
+        clean_domain = clean_domain.strip('./')
+        # ------------------------------------
 
         api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={clean_domain}"
         
