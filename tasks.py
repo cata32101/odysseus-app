@@ -46,7 +46,6 @@ def get_supabase_client() -> Client:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Supabase URL/Key not configured for Celery worker.")
     
-    # Create a direct Supabase client without the proxy
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_apollo_enrichment(domain: str) -> dict | None:
@@ -55,10 +54,7 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        # --- ROBUST DOMAIN CLEANING SOLUTION ---
         clean_domain = domain.strip().strip('./')
-        # ------------------------------------
-
         print(f"📡 Fetching Apollo data for cleaned domain: {clean_domain}")
 
         response = requests.get(
@@ -83,7 +79,6 @@ def get_gemini_enrichment_basic(domain: str) -> dict | None:
         print("ERROR: GEMINI_API_KEY not found for fallback.")
         return None
 
-    # --- FIX: Use a more stable and widely available model ---
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key)
     
     transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
@@ -158,8 +153,8 @@ def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
 def get_gemini_vetting(company_data: dict) -> dict:
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key: raise Exception("GEMINI_API_KEY not found")
-    company_name = company_data.get("organization", {}).get("name", "Unknown Company")
-    if not company_name:
+    company_name = company_data.get("organization", {}).get("name")
+    if not company_name or company_name == "Unknown Company":
         print(f"🚫 Skipping multi-agent research because no valid company name was found.")
         return { "status": Status.FAILED.value, "investment_reasoning": "Failed to identify a valid company name during enrichment." }
     dossier = company_data.get("organization", {})
@@ -176,7 +171,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
         topic_results = {future_to_topic[future]: future.result() for future in concurrent.futures.as_completed(future_to_topic)}
     prompts = {
         "geography": (GeographyAnalysis, f"""
-    You are a geopolitical risk analyst. Your task is to analyze the company's geographical footprint based on the provided research. **You must completely disregard any information related to Russia for this analysis.** If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**.
+    You are a geopolitical risk analyst. Your task is to analyze the company's geographical footprint based on the provided research. **You must completely disregard any information related to Russia for this analysis.** . If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring Rubric (0-10):**
       - **10:** Active, direct investments or assets in Ukraine. 
       - **9:** Past or minority investments in Ukraine, or indirect supply-chain reliance.
@@ -193,7 +188,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     """),
         "industry": (IndustryAnalysis, f"""
     You are a seasoned partnership consultant and analyst with deep expertise in the upstream oil and gas sector.
-    Evaluate how well the company aligns with our primary investment thesis using the following scoring rubric. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**.
+    Evaluate how well the company aligns with our primary investment thesis using the following scoring rubric. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring Rubric (0-10):**
       - **10:** (Profile A) Owners of operational and producing oil fields. OR (Profile B) Opportunistic/risk-seeking capital (hedge funds, PE, sovereign wealth funds known for high-risk/high-return investments).
       - **9:** Operational and producing gas fields. Relevant but secondary to oil.
@@ -210,7 +205,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     """),
         "russia": (RussiaAnalysis, f"""
     You are a compliance officer specializing in international sanctions against Russia.
-    Assess the company's ties to Russia using the detailed scoring rubric below, distinguishing between pre- and post-February 2022 activities. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**.
+    Assess the company's ties to Russia using the detailed scoring rubric below, distinguishing between pre- and post-February 2022 activities. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring Rubric (0-10):**
       - **10:** No ties. Never operated, invested, or licensed in Russia.
       - **9:** Historic ties, but fully exited *before* Feb 24, 2022.
@@ -227,7 +222,7 @@ def get_gemini_vetting(company_data: dict) -> dict:
     """),
         "size": (SizeAnalysis, f"""
     You are an analyst sourcing mid-sized companies for potential partnerships.
-    Evaluate the company's size based on employee count and revenue from the dossier and research. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**.
+    Evaluate the company's size based on employee count and revenue from the dossier and research. If irrelevant information on other companies and topics is present, ignore it. your goal is to analyze the company **{company_name}**, thats all.
     - **Scoring (0-10):** 10 for an ideal mid-market size (50-5000 employees). Score lower for companies that are too small (<10) or too large (>10,000), however a large company is still better than a very small one. a large corporation with 25 thousand should get a 1-2. Also take revenue into account, for example 50 employees but large revenue for their size is a score improvement.
     - **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`. Briefly state the source of the information.
     """)
@@ -324,9 +319,10 @@ def vet_single_company(company: dict, supabase: Client) -> dict | None:
 )
 def run_vetting_task(self, company_ids: list[int]):
     print(f"Celery task started: Vetting {len(company_ids)} companies.")
-    supabase = get_supabase_client()
     vetted_count = 0
     for company_id in company_ids:
+        # --- FIX: Get a fresh Supabase client for each company ---
+        supabase = get_supabase_client()
         try:
             company_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
             if company_res.data:
