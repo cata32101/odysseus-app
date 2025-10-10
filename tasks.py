@@ -208,7 +208,6 @@ def get_gemini_vetting(company_data: dict) -> dict:
     - **Output:** You MUST respond with a valid JSON object containing `size_score` and `size_reasoning`. Briefly state the source of the information.
     """)
     }
-
     all_results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(prompts)) as executor:
         future_to_topic = {}
@@ -218,17 +217,13 @@ def get_gemini_vetting(company_data: dict) -> dict:
             prompt = f"{prompt_template}\n\n**Company Name:** {company_name}\n**Research Transcript:**\n{transcript}"
             if topic == 'size': prompt += f"\n**Dossier:** {json.dumps(dossier)}"
             future_to_topic[executor.submit(llm.invoke, prompt)] = topic
-        
         for future in concurrent.futures.as_completed(future_to_topic):
             topic = future_to_topic[future]
             try:
                 all_results[topic] = future.result()
             except Exception as e:
                 print(f"Error processing LLM for topic {topic}: {e}")
-                # In a real worker, you might want to handle this more gracefully
-                # For now, we'll let it raise, which will mark the task as failed.
                 raise Exception(f"LLM analysis failed for topic: {topic}")
-
     print("✍️ Synthesizing final analysis...")
     final_llm = ChatGoogleGenerativeAI(**llm_args).with_structured_output(FinalAnalysis)
     final_prompt = f"""
