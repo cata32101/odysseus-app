@@ -13,7 +13,7 @@ from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
 from dotenv import load_dotenv
 import requests
-from supabase import create_client, Client, ClientOptions  # <-- Make sure ClientOptions is imported
+from supabase import create_client, Client, ClientOptions
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Import the centralized request function from utils
@@ -46,7 +46,7 @@ def get_supabase_client() -> Client:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Supabase URL/Key not configured for Celery worker.")
 
-    # --- PROXY CONFIGURATION FOR SUPABASE CLIENT ---
+    # --- PROXY CONFIGURATION ---
     customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
     proxy_password = os.getenv("BRIGHTDATA_PROXY_PASSWORD")
     zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE") 
@@ -58,12 +58,19 @@ def get_supabase_client() -> Client:
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:33335'
     proxies = {'http://': proxy_url, 'https://': proxy_url}
     
-    # --- ** FIX: Use the correct structure for passing proxy options ** ---
-    # The Supabase client uses httpx under the hood, and we need to pass options to it.
-    # This is the correct format for the latest version of the library.
-    opts = ClientOptions(postgrest_client_options={'proxies': proxies})
-    
-    return create_client(SUPABASE_URL, SUPABASE_KEY, options=opts)
+    # --- FIX ---
+    # Create the client without the problematic options first
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    # Then, directly set the proxies on the underlying httpx session
+    # This is more likely to be compatible with older versions of the library
+    if hasattr(client.postgrest, 'session') and hasattr(client.postgrest.session, 'proxies'):
+        client.postgrest.session.proxies = proxies
+    else:
+        print("Warning: Could not set proxies directly on the Supabase client session.")
+
+
+    return client
 
 
 def get_apollo_enrichment(domain: str) -> dict | None:
