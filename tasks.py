@@ -13,9 +13,10 @@ from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
 from dotenv import load_dotenv
 import requests
-from supabase import create_client, Client, ClientOptions  # <-- ** ADDED ClientOptions IMPORT **
+from supabase import create_client, Client, ClientOptions  # <-- Make sure ClientOptions is imported
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+# Import the centralized request function from utils
 from utils import make_request_with_proxy, fetch_and_parse_url, brightdata_search
 from models import (
     GeographyAnalysis, IndustryAnalysis, RussiaAnalysis, SizeAnalysis, FinalAnalysis, Status
@@ -57,9 +58,13 @@ def get_supabase_client() -> Client:
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:33335'
     proxies = {'http://': proxy_url, 'https://': proxy_url}
     
-    # --- ** FIX: Use ClientOptions to pass proxy settings ** ---
-    client_options = ClientOptions(proxies=proxies)
-    return create_client(SUPABASE_URL, SUPABASE_KEY, options=client_options)
+    # --- ** FIX: Use the correct structure for passing proxy options ** ---
+    # The Supabase client uses httpx under the hood, and we need to pass options to it.
+    # This is the correct format for the latest version of the library.
+    opts = ClientOptions().replace(postgrest_client_options={'proxies': proxies})
+    
+    return create_client(SUPABASE_URL, SUPABASE_KEY, options=opts)
+
 
 def get_apollo_enrichment(domain: str) -> dict | None:
     """Gets Apollo enrichment data, routing the request through the Bright Data proxy."""
