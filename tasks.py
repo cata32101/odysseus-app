@@ -47,34 +47,11 @@ def get_supabase_client() -> Client:
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise Exception("Supabase URL/Key not configured for Celery worker.")
-
-    # --- PROXY CONFIGURATION ---
-    customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
-    proxy_password = os.getenv("BRIGHTDATA_UNLOCKER_PASSWORD")
-    zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE") 
-
-    if not all([customer_id, zone, proxy_password]):
-        raise Exception("Bright Data proxy credentials for Supabase are not set in environment variables.")
-
-    proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
-    proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     
-    # FIX: Use the standard httpx 'proxies' dictionary. This resolves the AttributeError.
-    proxies = {
-        "http://": proxy_url,
-        "https://": proxy_url
-    }
-    
-    # Create the synchronous httpx.Client configured with the proxies
-    httpx_client = httpx.Client(proxies=proxies, verify=False) 
-
     # Pass the configured httpx client via ClientOptions (replaces postgrest_client_options)
     return create_client(
         SUPABASE_URL, 
-        SUPABASE_KEY,
-        options=ClientOptions(
-            httpx_client=httpx_client # <-- This is the correct argument
-        )
+        SUPABASE_KEY
     )
 
 def get_apollo_enrichment(domain: str) -> dict | None:
@@ -106,7 +83,8 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         apollo_headers = {"X-Api-Key": apollo_api_key}
             
         print(f"📡 Fetching Apollo data via Unlocker Proxy for: {clean_domain}")
-        response = make_request_with_proxy(api_url, zone=unlocker_zone, extra_headers=apollo_headers)
+        # response = make_request_with_proxy(api_url, zone=unlocker_zone, extra_headers=apollo_headers)
+        response = requests.get(api_url, headers=apollo_headers, timeout=60)
         
         return response.json()
     except Exception as e:
