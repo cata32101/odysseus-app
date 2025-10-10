@@ -291,24 +291,31 @@ def get_gemini_vetting(company_data: dict) -> dict:
     return final_results
 
 def vet_single_company(company: dict, supabase: Client) -> dict | None:
-    supabase.table('companies').update({'status': Status.VETTING.value}).eq('id', company['id']).execute()
-    apollo_data = get_apollo_enrichment(company['domain'])
-    if not apollo_data or not apollo_data.get("organization"):
-        apollo_data = get_gemini_enrichment_basic(company['domain'])
+    try:
+        supabase.table('companies').update({'status': Status.VETTING.value}).eq('id', company['id']).execute()
+        apollo_data = get_apollo_enrichment(company['domain'])
         if not apollo_data or not apollo_data.get("organization"):
-             raise Exception("Primary (Apollo) and fallback (Gemini) enrichment failed.")
-    vetting_results = get_gemini_vetting(apollo_data)
-    org_data = apollo_data.get("organization", {})
-    update_data = {
-        "name": org_data.get("name", company['domain']),
-        "status": Status.VETTED.value,
-        "apollo_data": apollo_data,
-        "website_url": org_data.get("website_url"),
-        "company_linkedin_url": org_data.get("linkedin_url"),
-        **vetting_results
-    }
-    update_response = supabase.table('companies').update(update_data).eq('id', company['id']).execute()
-    return update_response.data[0] if update_response.data else None
+            apollo_data = get_gemini_enrichment_basic(company['domain'])
+            if not apollo_data or not apollo_data.get("organization"):
+                 raise Exception("Primary (Apollo) and fallback (Gemini) enrichment failed.")
+        
+        vetting_results = get_gemini_vetting(apollo_data)
+        
+        org_data = apollo_data.get("organization", {})
+        update_data = {
+            "name": org_data.get("name", company['domain']),
+            "status": Status.VETTED.value,
+            "apollo_data": apollo_data,
+            "website_url": org_data.get("website_url"),
+            "company_linkedin_url": org_data.get("linkedin_url"),
+            **vetting_results
+        }
+        update_response = supabase.table('companies').update(update_data).eq('id', company['id']).execute()
+        return update_response.data[0] if update_response.data else None
+    except requests.exceptions.RequestException as e:
+        print(f"A network error occurred while vetting {company.get('domain')}: {e}")
+        supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company['id']).execute()
+        return None
 
 @celery_app.task(
     name='tasks.run_vetting_task',
@@ -321,7 +328,6 @@ def run_vetting_task(self, company_ids: list[int]):
     print(f"Celery task started: Vetting {len(company_ids)} companies.")
     vetted_count = 0
     for company_id in company_ids:
-        # --- FIX: Get a fresh Supabase client for each company ---
         supabase = get_supabase_client()
         try:
             company_res = supabase.table('companies').select('*').eq('id', company_id).single().execute()
@@ -330,7 +336,7 @@ def run_vetting_task(self, company_ids: list[int]):
                 if result:
                     vetted_count += 1
         except SoftTimeLimitExceeded:
-            print(f"Soft time limit exceeded for company ID {company_id}. Marking as failed and moving on.")
+            print(f"Soft time limit exceeded for company ID {company_id}. Marking as failed.")
             supabase.table('companies').update({'status': Status.FAILED.value}).eq('id', company_id).execute()
             continue
         except Exception as e:
