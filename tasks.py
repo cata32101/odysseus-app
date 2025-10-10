@@ -86,7 +86,16 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         # response = make_request_with_proxy(api_url, zone=unlocker_zone, extra_headers=apollo_headers)
         response = requests.get(api_url, headers=apollo_headers, timeout=60, verify=False)
         
-        return response.json()
+        response_data = response.json()
+
+        # --- FIX: Clean up the organization's linkedin_url to remove any trailing periods ---
+        organization_data = response_data.get('organization')
+        if organization_data:
+            linkedin_url = organization_data.get('linkedin_url')
+            if linkedin_url and isinstance(linkedin_url, str) and linkedin_url.endswith('.'):
+                organization_data['linkedin_url'] = linkedin_url.rstrip('.')
+
+        return response_data
     except Exception as e:
         print(f"Apollo API error for domain {domain}: {e}")
         return None
