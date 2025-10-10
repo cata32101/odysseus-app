@@ -55,58 +55,33 @@ def get_supabase_client() -> Client:
     )
 
 def get_apollo_enrichment(domain: str) -> dict | None:
-    """Gets Apollo enrichment data, routing the request through the Bright Data proxy."""
     apollo_api_key = os.getenv("APOLLO_API_KEY")
     if not apollo_api_key:
         print("APOLLO_API_KEY not found")
         return None
     try:
-        # --- MORE ROBUST DOMAIN CLEANING ---
+        # --- ROBUST DOMAIN CLEANING SOLUTION ---
         # 1. Start by stripping all leading/trailing whitespace.
         clean_domain = domain.strip()
         
-        # 2. Handle http/https prefixes.
-        if "http" in clean_domain:
-            clean_domain = urlparse(clean_domain).netloc
-        else:
-            clean_domain = clean_domain.split('/')[0]
-        
-        # 3. Now, safely check for and remove 'www.'
-        if clean_domain.startswith('www.'):
-            clean_domain = clean_domain[4:]
-            
-        # 4. Finally, remove any remaining junk characters from the edges.
+        # 2. Remove any trailing junk characters like '.' or '/'
+        #    This is the crucial step that fixes the issue.
         clean_domain = clean_domain.strip('./')
         # ------------------------------------
 
-        api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={clean_domain}"
-        
-        unlocker_zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
-        if not unlocker_zone:
-            raise Exception("BRIGHTDATA_UNLOCKER_ZONE is not set in environment variables.")
+        # Optional: Add a log to confirm the cleaned domain
+        print(f"📡 Fetching Apollo data for cleaned domain: {clean_domain}")
 
-        apollo_headers = {"X-Api-Key": apollo_api_key}
-            
-        print(f"📡 Fetching Apollo data via Unlocker Proxy for: {clean_domain}")
-        # The request is made directly, bypassing the make_request_with_proxy retry logic
-        response = requests.get(api_url, headers=apollo_headers, timeout=60, verify=False)
-        
-        # --- FIX 3 (Robustness): Check for HTTP status code errors before trying to parse JSON ---
-        response.raise_for_status() 
-        
-        response_data = response.json()
-
-        # --- FIX 2 (Output URL Cleaning): Clean up the organization's linkedin_url ---
-        organization_data = response_data.get('organization')
-        if organization_data:
-            linkedin_url = organization_data.get('linkedin_url')
-            if linkedin_url and isinstance(linkedin_url, str) and linkedin_url.endswith('.'):
-                organization_data['linkedin_url'] = linkedin_url.rstrip('.')
-        # -------------------------------------------------------------------------
-
-        return response_data
-    except Exception as e:
-        print(f"Apollo API error for domain {domain}: {e}")
+        response = requests.get(
+            "https://api.apollo.io/v1/organizations/enrich",
+            headers={"X-Api-Key": apollo_api_key, 'Content-Type': 'application/json'},
+            params={"domain": clean_domain},  # Pass the cleaned domain here
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Apollo API error for original domain {domain}: {e}")
         return None
 
 def get_gemini_enrichment_basic(domain: str) -> dict | None:
