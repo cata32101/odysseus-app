@@ -58,7 +58,8 @@ def make_request_with_proxy(target_url: str, zone: str) -> requests.Response:
         raise Exception("Crucial Bright Data environment variables are not set.")
 
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
-    proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:33335' 
+    # --- FIX: Use the correct port ---
+    proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225' 
     
     proxies = {'http': proxy_url, 'https': proxy_url}
     
@@ -70,6 +71,7 @@ def make_request_with_proxy(target_url: str, zone: str) -> requests.Response:
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     
+    # --- FIX: Pass verify=False ---
     response = session.get(target_url, proxies=proxies, headers=headers, timeout=60, verify=False)
     response.raise_for_status()
     return response
