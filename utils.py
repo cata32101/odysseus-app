@@ -52,14 +52,18 @@ def make_request_with_proxy(target_url: str, zone: str) -> requests.Response:
     allowing for different zones (e.g., 'serp_api1' or 'unlocker').
     """
     customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
-    proxy_password = os.getenv("BRIGHTDATA_PROXY_PASSWORD")
+    
+    # --- FIX: Use the correct password for the zone ---
+    if zone == 'serp_api1':
+        proxy_password = os.getenv("BRIGHTDATA_SERP_PASSWORD")
+    else:
+        proxy_password = os.getenv("BRIGHTDATA_UNLOCKER_PASSWORD")
 
     if not all([customer_id, zone, proxy_password]):
         raise Exception("Crucial Bright Data environment variables are not set.")
 
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
-    # --- FIX: Use the correct port ---
-    proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225' 
+    proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     
     proxies = {'http': proxy_url, 'https': proxy_url}
     
@@ -71,7 +75,6 @@ def make_request_with_proxy(target_url: str, zone: str) -> requests.Response:
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     
-    # --- FIX: Pass verify=False ---
     response = session.get(target_url, proxies=proxies, headers=headers, timeout=60, verify=False)
     response.raise_for_status()
     return response
@@ -107,6 +110,7 @@ def brightdata_search(query: str) -> list:
     """
     print(f"⚡️ Performing web search for: {query}")
     search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&gl=us&hl=en"
+    # --- FIX: Use the correct environment variable for the zone ---
     serp_zone = os.getenv("BRIGHTDATA_ZONE")
     if not serp_zone:
         raise Exception("BRIGHTDATA_ZONE for SERP API is not set.")
