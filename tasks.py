@@ -17,6 +17,7 @@ from supabase import create_client, Client, ClientOptions
 from langchain_google_genai import ChatGoogleGenerativeAI
 import time
 from urllib.parse import urlparse
+import httpx
 
 # Import the centralized request function from utils
 from utils import make_request_with_proxy, fetch_and_parse_url, brightdata_search
@@ -40,9 +41,6 @@ celery_app = Celery(
 )
 
 # --- CORRECTED HELPER FUNCTIONS ---
-
-from supabase import create_client, Client, ClientOptions
-
 def get_supabase_client() -> Client:
     """Creates a Supabase client that routes all its traffic through the Bright Data proxy."""
     SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -53,21 +51,30 @@ def get_supabase_client() -> Client:
     # --- PROXY CONFIGURATION ---
     customer_id = os.getenv("BRIGHTDATA_CUSTOMER_ID")
     proxy_password = os.getenv("BRIGHTDATA_UNLOCKER_PASSWORD")
-    zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE")
+    zone = os.getenv("BRIGHTDATA_UNLOCKER_ZONE") 
 
     if not all([customer_id, zone, proxy_password]):
-        raise Exception("FATAL: Bright Data proxy credentials for Supabase are not fully set.")
+        raise Exception("Bright Data proxy credentials for Supabase are not set in environment variables.")
 
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     
-    # --- FINAL FIX: This is the correct and most compatible way ---
-    # We create the client and then directly modify the proxy settings 
-    # on its underlying HTTPX session.
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    client.postgrest.session.proxies = {"http://": proxy_url, "https://": proxy_url}
-
-    return client
+    # --- FINAL, ROBUST FIX ---
+    # 1. Create an httpx client with the proxy configured.
+    proxies = {'http://': proxy_url, 'https://': proxy_url}
+    transport = httpx.Proxy(proxies=proxies)
+    
+    # 2. Pass the custom httpx client directly to the Supabase client.
+    # This ensures all requests from this client go through the proxy.
+    return create_client(
+        SUPABASE_URL, 
+        SUPABASE_KEY,
+        options=ClientOptions(
+            postgrest_client_options={
+                "transport": transport
+            }
+        )
+    )
 
 def get_apollo_enrichment(domain: str) -> dict | None:
     """Gets Apollo enrichment data, routing the request through the Bright Data proxy."""
