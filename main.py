@@ -154,9 +154,16 @@ def change_company_group(req: ChangeGroupRequest, supabase: Client = Depends(get
 @app.post("/companies/add", status_code=201, dependencies=[Depends(get_current_user)])
 def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supabase)):
     try:
-        all_domains = list(set([d.strip() for d in req.domains if d.strip()]))
+        # --- ROBUST CLEANING SOLUTION ---
+        # 1. Strip whitespace, then remove common junk characters like dots, slashes, etc.
+        cleaned_domains = [
+            d.strip().strip('./') for d in req.domains if d.strip()
+        ]
+        all_domains = list(set(cleaned_domains))
+        # ------------------------------------
+
         existing_domains = set()
-        batch_size = 20 
+        batch_size = 20
 
         # Batch the check for existing domains
         for i in range(0, len(all_domains), batch_size):
@@ -165,10 +172,10 @@ def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supab
                 response = supabase.table('companies').select('domain').in_('domain', batch).execute()
                 for item in response.data:
                     existing_domains.add(item['domain'])
-        
+
         domains_to_add = [{'domain': d, 'status': 'New', 'group_name': req.group_name} for d in all_domains if d not in existing_domains]
         skipped_domains = [d for d in all_domains if d in existing_domains]
-        
+
         added_count = 0
         # Batch the inserts
         for i in range(0, len(domains_to_add), batch_size):
@@ -176,7 +183,7 @@ def add_companies(req: AddCompaniesRequest, supabase: Client = Depends(get_supab
             if batch:
                 insert_response = supabase.table('companies').insert(batch).execute()
                 added_count += len(insert_response.data)
-        
+
         return {"message": "Processed domains.", "added_count": added_count, "skipped_domains": skipped_domains}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add companies: {str(e)}")
