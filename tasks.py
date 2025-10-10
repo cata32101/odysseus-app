@@ -59,11 +59,11 @@ def get_supabase_client() -> Client:
     proxy_user = f'brd-customer-{customer_id}-zone-{zone}'
     proxy_url = f'http://{proxy_user}:{proxy_password}@brd.superproxy.io:22225'
     
-    # FIX 1: Create an httpx.Proxy instance (from httpx import Proxy)
+    # FIX 1: Use httpx.Proxy to define the transport
     transport = httpx.Proxy(proxy_url)
     
     # FIX 2: Create a synchronous httpx.Client configured with the transport
-    # Note: verify=False is often required when routing through a proxy
+    # We set verify=False to prevent certificate issues with the proxy
     httpx_client = httpx.Client(transport=transport, verify=False) 
 
     # FIX 3: Pass the configured httpx client via ClientOptions (replaces postgrest_client_options)
@@ -91,6 +91,9 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         # Remove 'www.' if it exists
         if clean_domain.startswith('www.'):
             clean_domain = clean_domain[4:]
+            
+        # NEW FIX: Remove trailing dots, slashes, or other junk characters
+        clean_domain = clean_domain.strip().strip('./')
 
         api_url = f"https://api.apollo.io/v1/organizations/enrich?domain={clean_domain}"
         
