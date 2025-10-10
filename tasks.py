@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import requests
 from supabase import create_client, Client, ClientOptions
 from langchain_google_genai import ChatGoogleGenerativeAI
+import time
 
 # Import the centralized request function from utils
 from utils import make_request_with_proxy, fetch_and_parse_url, brightdata_search
@@ -94,27 +95,70 @@ def get_apollo_enrichment(domain: str) -> dict | None:
         print(f"Apollo API error for domain {domain}: {e}")
         return None
 
-def get_gemini_enrichment_basic(domain: str) -> dict:
+def get_gemini_enrichment_basic(domain: str) -> dict | None:
+    """
+    A robust fallback to get basic company info from Gemini if Apollo fails.
+    It retries on failure and handles non-JSON responses gracefully.
+    """
     print(f"⚠️ Apollo failed for {domain}. Falling back to Gemini basic vetting.")
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
-        raise Exception("GEMINI_API_KEY not found for fallback.")
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key)
-    transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
-    prompt = f"""
-    Based on the following web search transcript for the domain "{domain}", extract the company's official name and its official LinkedIn URL.
-    Respond with a JSON object containing "name" and "linkedin_url".
-    If a value cannot be confidently determined, return null for that key.
-    Example response: {{"name": "Example Corp", "linkedin_url": "https://www.linkedin.com/company/example"}}
-    """
-    try:
-        response_content = llm.invoke(prompt).content
-        clean_response = response_content.strip().replace('```json', '').replace('```', '')
-        data = json.loads(clean_response)
-        return {"organization": {"name": data.get("name"), "linkedin_url": data.get("linkedin_url")}}
-    except (json.JSONDecodeError, AttributeError, Exception) as e:
-        print(f"Could not parse Gemini fallback response for {domain}: {e}")
+        print("ERROR: GEMINI_API_KEY not found for fallback.")
         return None
+
+    # --- FIX: Use a more stable and widely available model ---
+    llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=gemini_api_key)
+    
+    # Conduct a simple search to get context for the LLM
+    transcript, _ = conduct_targeted_research([f"company name for {domain}", f"{domain} official linkedin page"])
+    
+    # A more detailed prompt to ensure the model returns only JSON
+    prompt = f"""
+    Analyze the following web search transcript for the domain "{domain}".
+    Your task is to extract the company's official name and its official LinkedIn URL.
+    
+    Research Transcript:
+    ---
+    {transcript}
+    ---
+
+    You MUST respond with a valid JSON object. Do not include any other text, markdown, or explanations.
+    The JSON object should contain "name" and "linkedin_url" as keys.
+    If a value cannot be confidently determined from the text, return null for that key.
+
+    Example of a perfect response:
+    {{"name": "Example Corp", "linkedin_url": "https://www.linkedin.com/company/example"}}
+    """
+    
+    # --- FIX: Add a robust retry loop and better error handling ---
+    for attempt in range(3):
+        try:
+            response_content = llm.invoke(prompt).content
+            
+            # Clean the response to extract only the JSON part
+            if '```json' in response_content:
+                clean_response = response_content.split('```json')[1].split('```')[0].strip()
+            else:
+                clean_response = response_content.strip()
+
+            if not clean_response:
+                print(f"Attempt {attempt + 1}/3: Gemini returned an empty response for {domain}.")
+                time.sleep(2 * (attempt + 1)) # Exponential backoff
+                continue
+
+            data = json.loads(clean_response)
+            # Ensure we return a dictionary in the expected format
+            return {"organization": {"name": data.get("name"), "linkedin_url": data.get("linkedin_url")}}
+
+        except json.JSONDecodeError:
+            print(f"Attempt {attempt + 1}/3: Could not parse Gemini's non-JSON response for {domain}. Response: '{response_content}'")
+            time.sleep(2 * (attempt + 1))
+        except Exception as e:
+            print(f"Attempt {attempt + 1}/3: An unexpected error occurred during Gemini fallback for {domain}: {e}")
+            time.sleep(2 * (attempt + 1))
+            
+    print(f"CRITICAL: All Gemini fallback attempts failed for {domain}.")
+    return None # Return None after all retries have failed
 
 def conduct_targeted_research(queries: list[str]) -> tuple[str, list[dict]]:
     topic_sources = []

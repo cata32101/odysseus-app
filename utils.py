@@ -18,6 +18,8 @@ load_dotenv()
 class SSLAdapter(HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        # --- FIX: Set a specific, modern TLS version to improve connection stability ---
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.set_ciphers('DEFAULT@SECLEVEL=1')
         kwargs['ssl_context'] = context
         return super(SSLAdapter, self).init_poolmanager(*args, **kwargs)
